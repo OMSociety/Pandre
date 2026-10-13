@@ -40,6 +40,7 @@ public sealed class DownloadManager : IDisposable
 
     public void Start(string? aria2ExePath = null)
     {
+        if (_pollCts != null) return;   // 幂等：重复调用不再重复起 aria2/轮询
         _engine.Start(aria2ExePath);
         _pollCts = new CancellationTokenSource();
         _ = Task.Run(() => PollLoopAsync(_pollCts.Token));
@@ -47,6 +48,7 @@ public sealed class DownloadManager : IDisposable
 
     public async Task<DownloadTask> EnqueueAsync(PanDownloadLink link, string saveDir, CancellationToken ct = default)
     {
+        if (_pollCts == null) Start();   // 兜底：任何时序下先用后启都自愈（Start 幂等）
         Directory.CreateDirectory(saveDir);
         var options = new Dictionary<string, object>
         {

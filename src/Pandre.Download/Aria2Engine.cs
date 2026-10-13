@@ -91,8 +91,8 @@ public sealed class Aria2Engine : IDisposable
             @params = new object?[] { "token:" + _secret }.Concat(args).ToArray(),
         };
         var resp = await _http.PostAsync(_rpcUrl,
-            new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"));
-        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+            new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")).ConfigureAwait(false);
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false)).RootElement;
         if (root.TryGetProperty("error", out var err))
             throw new InvalidOperationException($"aria2 {method} 失败: {err.GetProperty("message").GetString()}");
         return root.GetProperty("result");

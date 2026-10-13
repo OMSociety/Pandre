@@ -169,7 +169,7 @@ public partial class PanViewModel : ViewModelBase
             var items = await Client.ListAsync(dir, CancellationToken.None);
             _currentItems = items;
             RebuildRows(items);
-            PathText = string.Join(" / ", _dirStack.Skip(0).Select(d => d?.Name ?? "根目录")).Replace("根目录", "/");
+            PathText = _dirStack.Count <= 1 ? "/" : "/ " + string.Join(" / ", _dirStack.Skip(1).Select(d => d?.Name ?? "?"));
             CanGoUp = _dirStack.Count > 1;
             StatusMessage = $"共 {items.Count} 项";
         }

@@ -123,63 +123,11 @@ public static class AppServices
         }
     }
 
-    /// <summary>
-    /// 启动时初始化：启动 aria2，恢复两家凭据并验证有效性。
-    /// 返回各家的验证结果（true=凭据有效已附着）。
-    /// </summary>
-    public static async Task<(bool BaiduOk, bool QuarkOk)> InitAsync()
+    /// <summary>启动 aria2 下载引擎（幂等）。aria2 缺失/启动失败不阻断登录恢复；下载时引擎会报具体原因。</summary>
+    public static void StartDownloads()
     {
-        Downloads.Start(Aria2Engine.ResolveExePath(DefaultAria2Path()));
-
-        var baiduOk = false;
-        var quarkOk = false;
-
-        var baiduCred = await Credentials.LoadAsync(PanProvider.Baidu);
-        if (baiduCred != null)
-        {
-            try
-            {
-                Baidu.Attach(baiduCred);
-                var info = await Baidu.GetAccountAsync();
-                // 持久化可能被续期的 Cookie
-                PersistIfChangedAsync(PanProvider.Baidu, baiduCred);
-                baiduOk = true;
-            }
-            catch (PanException ex) when (ex.IsAuthExpired)
-            {
-                await Credentials.ClearAsync(PanProvider.Baidu);
-                Baidu.Dispose();
-            }
-            catch { /* 网络问题等：维持附着，让用户重试 */ baiduOk = Baidu.IsAuthenticated; }
-        }
-
-        var quarkCred = await Credentials.LoadAsync(PanProvider.Quark);
-        if (quarkCred != null)
-        {
-            try
-            {
-                Quark.Attach(quarkCred);
-                await Quark.GetAccountAsync();
-                PersistIfChangedAsync(PanProvider.Quark, quarkCred);
-                quarkOk = true;
-            }
-            catch (PanException ex) when (ex.IsAuthExpired)
-            {
-                await Credentials.ClearAsync(PanProvider.Quark);
-                Quark.Dispose();
-            }
-            catch { quarkOk = Quark.IsAuthenticated; }
-        }
-
-        return (baiduOk, quarkOk);
-    }
-
-    private static void PersistIfChangedAsync(PanProvider provider, PanCredential old)
-    {
-        var client = provider == PanProvider.Baidu ? (IPanClient)Baidu : Quark;
-        var fresh = client.ExportCookie();
-        if (fresh != null && fresh != old.Cookie)
-            _ = Credentials.SaveAsync(old with { Cookie = fresh, ObtainedAt = System.DateTimeOffset.Now });
+        try { Downloads.Start(DefaultAria2Path()); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine("aria2 启动失败: " + ex.Message); }
     }
 
     public static async Task SaveCredentialAsync(PanCredential cred)

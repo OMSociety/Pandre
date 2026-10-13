@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Pandre.Core;
+using Pandre.Desktop.Services;
 
 namespace Pandre.Desktop.ViewModels;
 
@@ -119,9 +120,11 @@ public partial class MainViewModel : ViewModelBase
         if (IsLoginPanelOpen) IsLoginPanelOpen = false;
     }
 
-    /// <summary>启动时初始化：恢复登录态。</summary>
+    /// <summary>启动时初始化：起下载引擎 + 恢复登录态。</summary>
     public async Task InitAsync()
     {
+        // 引擎启动含同步等待 RPC 就绪，放线程池并行，不占 UI 线程
+        _ = System.Threading.Tasks.Task.Run(AppServices.StartDownloads);
         await Login.InitAsync();
         OnSessionChanged();
         _sessionRestored = true;
