@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Pandre.Core/Pandre.Core.csproj" />
+    <Project Path="src/Pandre.Desktop/Pandre.Desktop.csproj" />
+    <Project Path="src/Pandre.Download/Pandre.Download.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,169 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Pandre.Desktop.App"
+             xmlns:local="using:Pandre.Desktop"
+             RequestedThemeVariant="Default">
+
+    <Application.DataTemplates>
+        <local:ViewLocator />
+    </Application.DataTemplates>
+
+    <Application.Resources>
+      <ResourceDictionary>
+        <!-- 色板随主题变体整体切换：Brush 与 Color 同字典，切换即换 -->
+        <ResourceDictionary.ThemeDictionaries>
+            <ResourceDictionary x:Key="Dark">
+                <Color x:Key="AccentColor">#4CA6E8</Color>
+                <SolidColorBrush x:Key="CardBrush" Color="#2D2D2D"/>
+                <SolidColorBrush x:Key="CardHoverBrush" Color="#353535"/>
+                <SolidColorBrush x:Key="CardBorderBrush" Color="#3F3F3F"/>
+                <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F0F0F0"/>
+                <SolidColorBrush x:Key="TextSecondaryBrush" Color="#9A9A9A"/>
+                <SolidColorBrush x:Key="NavBgBrush" Color="#202020"/>
+                <SolidColorBrush x:Key="ThumbBgBrush" Color="#3A3A3A"/>
+                <SolidColorBrush x:Key="NavHoverBrush" Color="#2E2E2E"/>
+                <SolidColorBrush x:Key="NavSelectedBrush" Color="#383838"/>
+            </ResourceDictionary>
+            <ResourceDictionary x:Key="Light">
+                <Color x:Key="AccentColor">#0F6CBD</Color>
+                <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF"/>
+                <SolidColorBrush x:Key="CardHoverBrush" Color="#F5F5F5"/>
+                <SolidColorBrush x:Key="CardBorderBrush" Color="#E0E0E0"/>
+                <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1B1B1B"/>
+                <SolidColorBrush x:Key="TextSecondaryBrush" Color="#6B6B6B"/>
+                <SolidColorBrush x:Key="NavBgBrush" Color="#F0F0F0"/>
+                <SolidColorBrush x:Key="ThumbBgBrush" Color="#E8E8E8"/>
+                <SolidColorBrush x:Key="NavHoverBrush" Color="#E4E4E4"/>
+                <SolidColorBrush x:Key="NavSelectedBrush" Color="#DCDCDC"/>
+            </ResourceDictionary>
+        </ResourceDictionary.ThemeDictionaries>
+        <!-- Accent 与变体无关，直接定义在外层 -->
+        <SolidColorBrush x:Key="AccentBrush" Color="{DynamicResource AccentColor}"/>
+      </ResourceDictionary>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+
+        <!-- 基础文字 -->
+        <Style Selector="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="TextBlock.secondary">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="TextBlock.title">
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="TextBlock.card-title">
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <!-- 卡片容器 -->
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="16"/>
+        </Style>
+
+        <!-- 圆角按钮 -->
+        <Style Selector="Button">
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        </Style>
+        <!-- 图标按钮（小方块） -->
+        <Style Selector="Button.icon-btn">
+            <Setter Property="Padding" Value="7"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="MinWidth" Value="32"/>
+        </Style>
+        <!-- 主按钮 -->
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#5FB2EF"/>
+        </Style>
+
+        <!-- 输入框 -->
+        <Style Selector="TextBox">
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Padding" Value="10,6"/>
+        </Style>
+
+        <!-- 侧栏导航按钮：ListBoxItem 整行即按钮 -->
+        <Style Selector="ListBox.nav">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.nav ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="6,2"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.nav ListBoxItem:pointerover">
+            <Setter Property="Background" Value="{DynamicResource NavHoverBrush}"/>
+        </Style>
+        <Style Selector="ListBox.nav ListBoxItem:selected">
+            <Setter Property="Background" Value="{DynamicResource NavSelectedBrush}"/>
+        </Style>
+        <Style Selector="ListBox.nav ListBoxItem:focus">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.nav ListBoxItem:focus:selected">
+            <Setter Property="Background" Value="{DynamicResource NavSelectedBrush}"/>
+        </Style>
+        <!-- 导航项内部布局 -->
+        <Style Selector="StackPanel.nav-item">
+            <Setter Property="Orientation" Value="Vertical"/>
+            <Setter Property="Spacing" Value="4"/>
+        </Style>
+
+        <!-- 文件/下载列表行 -->
+        <Style Selector="ListBox.rows">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.rows ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,3"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.rows ListBoxItem:selected /template/ Border">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.rows ListBoxItem:focus">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+
+        <!-- 行卡片 -->
+        <Style Selector="Border.row-card">
+            <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12,10"/>
+        </Style>
+        <Style Selector="Border.row-card:pointerover">
+            <Setter Property="Background" Value="{DynamicResource CardHoverBrush}"/>
+        </Style>
+
+        <!-- 进度条 -->
+        <Style Selector="ProgressBar">
+            <Setter Property="Height" Value="4"/>
+            <Setter Property="CornerRadius" Value="2"/>
+        </Style>
+
+        <!-- 滚动条调细 -->
+        <Style Selector="ScrollBar">
+            <Setter Property="Width" Value="10"/>
+        </Style>
+    </Application.Styles>
+</Application>

@@ -1,0 +1,55 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Pandre.Desktop.ViewModels"
+             x:Class="Pandre.Desktop.Views.PanView"
+             x:DataType="vm:PanViewModel">
+  <Grid RowDefinitions="Auto,Auto,*">
+    <!-- 工具栏 -->
+    <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto,Auto" Margin="0,0,0,10">
+      <Button Grid.Column="0" Classes="icon-btn" Command="{Binding UpCommand}" IsEnabled="{Binding CanGoUp}" Margin="0,0,8,0">
+        <PathIcon Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" Width="16" Height="16"/>
+      </Button>
+      <Button Grid.Column="1" Classes="icon-btn" Command="{Binding RefreshCommand}" Margin="0,0,8,0">
+        <PathIcon Data="M17.65 6.35A8 8 0 1 0 19.74 12h-2.08a6 6 0 1 1-1.41-4.24L13 11h7V4l-2.35 2.35z" Width="16" Height="16"/>
+      </Button>
+      <TextBox Grid.Column="2" Text="{Binding SearchText}" PlaceholderText="搜索当前网盘…" Margin="0,0,8,0"
+               KeyDown="OnSearchKeyDown"/>
+      <Button Grid.Column="3" Content="搜索" Command="{Binding SearchCommand}" Margin="0,0,8,0"/>
+      <Button Grid.Column="4" Classes="primary" Content="下载选中" Command="{Binding DownloadSelectedCommand}"/>
+    </Grid>
+    <!-- 路径 + 状态 -->
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+      <TextBlock Grid.Column="0" Classes="secondary" Text="{Binding PathText}" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="1" Classes="secondary" Text="{Binding StatusMessage}" VerticalAlignment="Center"/>
+    </Grid>
+    <!-- 文件行列表（Ctrl/Shift 多选） -->
+    <ListBox Grid.Row="2" Classes="rows" x:Name="FileList" ItemsSource="{Binding Files}"
+             SelectionMode="Multiple" SelectedItems="{Binding SelectedFiles}"
+             DoubleTapped="OnRowDoubleTapped">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="vm:FileRowViewModel">
+          <Border Classes="row-card">
+            <Grid ColumnDefinitions="Auto,*,100,140" VerticalAlignment="Center">
+              <Border Grid.Column="0" Width="34" Height="34" Margin="0,0,12,0" CornerRadius="6"
+                      Background="{DynamicResource ThumbBgBrush}" ClipToBounds="True">
+                <Panel>
+                  <Image Source="{Binding Thumb}" Stretch="UniformToFill" IsVisible="{Binding !!Thumb}"/>
+                  <PathIcon Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Foreground="{DynamicResource TextSecondaryBrush}"
+                            IsVisible="{Binding !Thumb}">
+                    <PathIcon.Data>
+                      <PathGeometry Figures="M4 6h6l2 2h8v12H4z"/>
+                    </PathIcon.Data>
+                  </PathIcon>
+                </Panel>
+              </Border>
+              <TextBlock Grid.Column="1" Text="{Binding File.Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+              <TextBlock Grid.Column="2" Classes="secondary" Text="{Binding SizeText}" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+              <TextBlock Grid.Column="3" Classes="secondary" Text="{Binding ModifiedText}" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+            </Grid>
+          </Border>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </Grid>
+</UserControl>

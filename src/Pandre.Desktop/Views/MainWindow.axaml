@@ -1,0 +1,54 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Pandre.Desktop.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
+        x:Class="Pandre.Desktop.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="盘多录 Pandre"
+        Width="1100" Height="700"
+        MinWidth="900" MinHeight="600"
+        Icon="/Assets/avalonia-logo.ico"
+        TransparencyLevelHint="Mica, AcrylicBlur"
+        Background="Transparent">
+
+  <Grid ColumnDefinitions="72,*">
+    <!-- 窄侧栏：图标+文字导航 -->
+    <Border Background="{DynamicResource NavBgBrush}">
+      <Grid RowDefinitions="Auto,*,Auto">
+        <!-- 顶部 Logo -->
+        <Border Grid.Row="0" Margin="0,14,0,10">
+          <PathIcon Data="M12 3a5 5 0 0 0-4.9 4.1A4.5 4.5 0 0 0 7.5 16h9a4 4 0 0 0 .6-7.96A5.5 5.5 0 0 0 12 3z"
+                    Width="24" Height="24" Foreground="{StaticResource AccentBrush}"
+                    HorizontalAlignment="Center"/>
+        </Border>
+        <!-- 导航 -->
+        <ListBox Grid.Row="1" Classes="nav" ItemsSource="{Binding NavItems}" SelectedItem="{Binding SelectedNav}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:NavItem">
+              <StackPanel Classes="nav-item" HorizontalAlignment="Center" Margin="0,10">
+                <PathIcon Width="20" Height="20" HorizontalAlignment="Center"
+                          Foreground="{StaticResource TextPrimaryBrush}"
+                          Data="{Binding Icon}"/>
+                <TextBlock Text="{Binding Title}" FontSize="11" HorizontalAlignment="Center"
+                           Foreground="{StaticResource TextPrimaryBrush}"/>
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Grid>
+    </Border>
+
+    <!-- 内容区 -->
+    <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" Margin="20,16">
+      <!-- 页头 -->
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,14">
+        <TextBlock Grid.Column="0" Classes="title" Text="{Binding SelectedNav.Title}" VerticalAlignment="Center"/>
+        <TextBlock Grid.Column="1" Classes="secondary" Text="{Binding StatusText}" VerticalAlignment="Center"/>
+      </Grid>
+      <!-- 页面 -->
+      <ContentControl Grid.Row="1" Content="{Binding CurrentPage}"/>
+    </Grid>
+  </Grid>
+</Window>

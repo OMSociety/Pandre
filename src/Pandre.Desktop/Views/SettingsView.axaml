@@ -1,0 +1,79 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Pandre.Desktop.ViewModels"
+             x:Class="Pandre.Desktop.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+  <ScrollViewer>
+    <StackPanel Spacing="16" MaxWidth="720">
+
+      <!-- 个性化分组 -->
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="card-title" Text="个性化" Margin="0,0,0,8"/>
+
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
+            <PathIcon Grid.Column="0" Data="M12 3a9 9 0 1 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8z"
+                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
+                      Foreground="{StaticResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="应用主题"/>
+              <TextBlock Classes="secondary" Text="更改应用程序的外观"/>
+            </StackPanel>
+            <ComboBox Grid.Column="2" ItemsSource="{Binding ThemeOptions}" SelectedItem="{Binding SelectedTheme}"
+                      MinWidth="170" VerticalAlignment="Center">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ThemeOption">
+                  <TextBlock Text="{Binding Label}"/>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </Grid>
+
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
+            <PathIcon Grid.Column="0" Data="M3 5h18v12H3z M5 19h14"
+                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
+                      Foreground="{StaticResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="窗口背景透明材质"/>
+              <TextBlock Classes="secondary" Text="设置窗口背景透明效果和透明材质"/>
+            </StackPanel>
+            <ComboBox Grid.Column="2" ItemsSource="{Binding MaterialOptions}" SelectedItem="{Binding SelectedMaterial}"
+                      MinWidth="170" VerticalAlignment="Center">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:MaterialOption">
+                  <TextBlock Text="{Binding Label}"/>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- 下载分组 -->
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="card-title" Text="下载" Margin="0,0,0,8"/>
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
+            <PathIcon Grid.Column="0" Data="M12 3v10.17l3.59-3.58L17 11l-5 5-5-5 1.41-1.41L12 13.17V3z M5 19h14v2H5z"
+                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
+                      Foreground="{StaticResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="下载目录"/>
+              <TextBlock Classes="secondary" Text="文件保存到本地的位置"/>
+            </StackPanel>
+            <TextBox Grid.Column="2" Text="{Binding DownloadDir}" MinWidth="320" VerticalAlignment="Center"/>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- 关于分组 -->
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="card-title" Text="关于" Margin="0,0,0,8"/>
+          <TextBlock Classes="secondary" Text="盘多录 Pandre · GPL-3.0 · 聚合百度网盘与夸克网盘" TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
+
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -1,0 +1,45 @@
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Markup.Xaml;
+using Pandre.Desktop.Services;
+using Pandre.Desktop.ViewModels;
+
+namespace Pandre.Desktop;
+
+public partial class App : Application
+{
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+    }
+
+    public override void OnFrameworkInitializationCompleted()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            var vm = new MainViewModel();
+            var win = new Views.MainWindow { DataContext = vm };
+            desktop.MainWindow = win;
+
+            // 应用持久化的主题与透明材质
+            AppServices.ApplyTheme();
+            AppServices.ApplyMaterial();
+
+            // 恢复登录态（不阻塞出窗；continuation 回 UI 线程更新属性）
+            _ = InitSafelyAsync(vm);
+
+            desktop.Exit += (_, _) =>
+            {
+                try { AppServices.Downloads.Dispose(); } catch { }
+                try { AppServices.Baidu.Dispose(); AppServices.Quark.Dispose(); } catch { }
+            };
+        }
+        base.OnFrameworkInitializationCompleted();
+    }
+
+    private static async System.Threading.Tasks.Task InitSafelyAsync(MainViewModel vm)
+    {
+        try { await vm.InitAsync(); }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
+    }
+}
