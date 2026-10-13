@@ -146,6 +146,214 @@ public sealed class QuarkPanClient : IPanClient
             throw new PanException("flush 未补发 __puus，下载将不可用");
     }
 
+    // ============ P2：管理与分享（规格逆向自 QuarkPanTool / QuarkPan，见 docs/开发文档.md §4） ============
+
+    /// <summary>POST JSON 并取 data（包络 status=200/code=0 校验）。</summary>
+    private async Task<JsonElement> PostJsonAsync(string path, object body, string op, CancellationToken ct)
+    {
+        var resp = await Http.PostAsync($"{DriveBase}/{path}?{Q}",
+            new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"), ct);
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct)).RootElement;
+        ThrowIfNotOk(root, op);
+        return root.TryGetProperty("data", out var d) ? d.Clone() : default;
+    }
+
+    /// <summary>轮询异步任务直到成功/失败。data.status：0待 1跑 2成 3败。</summary>
+    private async Task<JsonElement> WaitTaskAsync(string taskId, string op, CancellationToken ct)
+    {
+        for (var i = 0; ; i++)
+        {
+            var root = JsonDocument.Parse(await Http.GetStringAsync(
+                $"{DriveBase}/task?{Q}&task_id={taskId}&retry_index={i}", ct)).RootElement;
+            ThrowIfNotOk(root, op);
+            var data = root.GetProperty("data");
+            var status = data.GetProperty("status").GetInt32();
+            if (status == 2) return data.Clone();
+            if (status == 3)
+            {
+                var msg = data.TryGetProperty("message", out var m) ? m.GetString() : "";
+                var code = data.TryGetProperty("code", out var c) ? c.GetInt64() : (long?)null;
+                throw new PanException($"夸克{op}任务失败 code={code} {msg}", code);
+            }
+            await Task.Delay(500, ct);
+        }
+    }
+
+    public async Task<PanFile> CreateFolderAsync(PanFile? dir, string name, CancellationToken ct = default)
+    {
+        var data = await PostJsonAsync("file",
+            new { pdir_fid = dir?.Id ?? "0", file_name = name, dir_init_lock = false, dir_path = "" },
+            "新建文件夹", ct);
+        var fid = data.GetProperty("fid").GetString()!;
+        var parentPath = dir?.Path?.TrimEnd('/') ?? "";
+        return new PanFile(fid, parentPath + "/" + name, name, 0, true,
+            DateTimeOffset.Now, null, PanProvider.Quark);
+    }
+
+    public async Task RenameAsync(PanFile file, string newName, CancellationToken ct = default) =>
+        await PostJsonAsync("file/rename", new { fid = file.Id, file_name = newName }, "重命名", ct);
+
+    public async Task MoveAsync(IReadOnlyList<PanFile> files, PanFile? targetDir, CancellationToken ct = default)
+    {
+        var data = await PostJsonAsync("file/move",
+            new
+            {
+                action_type = 1,
+                to_pdir_fid = targetDir?.Id ?? "0",
+                filelist = files.Select(f => f.Id).ToArray(),
+                exclude_fids = Array.Empty<string>(),
+            }, "移动", ct);
+        if (data.ValueKind == JsonValueKind.Object &&
+            !(data.TryGetProperty("finish", out var fin) && fin.GetBoolean()) &&
+            data.TryGetProperty("task_id", out var tid))
+            await WaitTaskAsync(tid.GetString()!, "移动", ct);
+    }
+
+    public async Task DeleteAsync(IReadOnlyList<PanFile> files, CancellationToken ct = default)
+    {
+        var data = await PostJsonAsync("file/delete",
+            new
+            {
+                action_type = 2,
+                filelist = files.Select(f => f.Id).ToArray(),
+                exclude_fids = Array.Empty<string>(),
+            }, "删除", ct);
+        if (data.ValueKind == JsonValueKind.Object &&
+            !(data.TryGetProperty("finish", out var fin) && fin.GetBoolean()) &&
+            data.TryGetProperty("task_id", out var tid))
+            await WaitTaskAsync(tid.GetString()!, "删除", ct);
+    }
+
+    /// <summary>转存外部分享链接（4 步链：token → detail → save → task）。</summary>
+    public async Task<PanSaveShareResult> SaveShareAsync(
+        string shareUrl, string? passcode, PanFile? targetDir, CancellationToken ct = default)
+    {
+        // pwd_id = 链接 /s/ 后的那一段
+        var m = System.Text.RegularExpressions.Regex.Match(shareUrl, @"/s/([0-9A-Za-z]+)");
+        if (!m.Success)
+            throw new PanException("无法识别的夸克分享链接（应为 https://pan.quark.cn/s/…）");
+        var pwdId = m.Groups[1].Value;
+
+        var tokenData = await PostJsonAsync("share/sharepage/token",
+            new { pwd_id = pwdId, passcode = passcode ?? "", support_visit_limit_private_share = true },
+            "转存-取stoken", ct);
+        var stoken = tokenData.GetProperty("stoken").GetString()!;
+
+        // 拉分享根目录全部条目（转存按根级条目选；文件夹整体递归进）
+        var fids = new List<string>();
+        var fidTokens = new List<string>();
+        for (var page = 1; ; page++)
+        {
+            var url = $"{DriveBase}/share/sharepage/detail?{Q}&pwd_id={pwdId}&stoken={Uri.EscapeDataString(stoken)}" +
+                      $"&pdir_fid=0&force=0&_page={page}&_size=50&_sort=file_type:asc,updated_at:desc";
+            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct)).RootElement;
+            ThrowIfNotOk(root, "转存-取列表");
+            var data = root.GetProperty("data");
+            if (data.TryGetProperty("is_owner", out var own) && own.GetInt32() == 1)
+                throw new PanException("这是你自己网盘里的文件，无需转存");
+            var list = data.GetProperty("list");
+            foreach (var it in list.EnumerateArray())
+            {
+                fids.Add(it.GetProperty("fid").GetString()!);
+                fidTokens.Add(it.GetProperty("share_fid_token").GetString()!);
+            }
+            var count = root.TryGetProperty("metadata", out var md) && md.TryGetProperty("_count", out var cnt)
+                ? cnt.GetInt32() : list.GetArrayLength();
+            if (list.GetArrayLength() == 0 || count < 50) break;
+        }
+        if (fids.Count == 0)
+            throw new PanException("分享里没有可转存的文件");
+
+        // save 走 drive.quark.cn（与 drive-pc 通用，逆向口径如此）
+        var saveBody = JsonSerializer.Serialize(new
+        {
+            fid_list = fids.ToArray(),
+            fid_token_list = fidTokens.ToArray(),
+            to_pdir_fid = targetDir?.Id ?? "0",
+            pwd_id = pwdId,
+            stoken,
+            pdir_fid = "0",
+            scene = "link",
+        });
+        var resp = await Http.PostAsync($"https://drive.quark.cn/1/clouddrive/share/sharepage/save?{Q}",
+            new StringContent(saveBody, Encoding.UTF8, "application/json"), ct);
+        var saveRoot = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct)).RootElement;
+        ThrowIfNotOk(saveRoot, "转存-提交");
+        var taskId = saveRoot.GetProperty("data").GetProperty("task_id").GetString()!;
+
+        var done = await WaitTaskAsync(taskId, "转存", ct);
+        var toDirName = done.TryGetProperty("save_as", out var sa) && sa.TryGetProperty("to_pdir_name", out var tn)
+            ? tn.GetString() ?? targetDir?.Name ?? "根目录"
+            : targetDir?.Name ?? "根目录";
+        return new PanSaveShareResult(toDirName, fids.Count);
+    }
+
+    public async Task<IReadOnlyList<PanShare>> ListSharesAsync(CancellationToken ct = default)
+    {
+        var shares = new List<PanShare>();
+        for (var page = 1; ; page++)
+        {
+            var url = $"{DriveBase}/share/mypage/detail?{Q}&_page={page}&_size=50&_fetch_total=1&_sort=created_at:desc";
+            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct)).RootElement;
+            ThrowIfNotOk(root, "分享列表");
+            var list = root.GetProperty("data").GetProperty("list");
+            if (list.GetArrayLength() == 0) break;
+            foreach (var it in list.EnumerateArray())
+            {
+                var createdMs = it.TryGetProperty("created_at", out var ca) ? ca.GetInt64() : 0;
+                var expiredMs = it.TryGetProperty("expired_at", out var ea) ? ea.GetInt64() : 0;
+                shares.Add(new PanShare(
+                    it.GetProperty("share_id").GetString()!,
+                    it.TryGetProperty("share_url", out var su) ? su.GetString() ?? "" : "",
+                    it.TryGetProperty("title", out var ti) ? ti.GetString() ?? "" : "",
+                    null, // 列表不含提取码；要取得逐个调 share/password，P2 UI 不展示
+                    it.TryGetProperty("file_num", out var fn) ? fn.GetInt64() : 0,
+                    DateTimeOffset.FromUnixTimeMilliseconds(createdMs),
+                    expiredMs > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(expiredMs) : null,
+                    PanProvider.Quark));
+            }
+            if (list.GetArrayLength() < 50) break;
+        }
+        return shares;
+    }
+
+    /// <summary>创建分享（3 步链：share → task 取 share_id → share/password 取链接）。</summary>
+    public async Task<PanShare> CreateShareAsync(PanShareOptions options, CancellationToken ct = default)
+    {
+        // expired_type：永久=1 1天=2 7天=3 30天=4（QuarkPanTool 菜单映射）
+        var expiredType = options.ExpireDays switch { 0 => 1, 1 => 2, 30 => 4, _ => 3 };
+        var hasPass = !string.IsNullOrEmpty(options.Passcode);
+        var body = new Dictionary<string, object?>
+        {
+            ["fid_list"] = options.Files.Select(f => f.Id).ToArray(),
+            ["title"] = options.Title,
+            ["url_type"] = hasPass ? 2 : 1,
+            ["expired_type"] = expiredType,
+        };
+        if (hasPass) body["passcode"] = options.Passcode;
+
+        var data = await PostJsonAsync("share", body, "创建分享", ct);
+        var taskId = data.GetProperty("task_id").GetString()!;
+        var done = await WaitTaskAsync(taskId, "创建分享", ct);
+        var shareId = done.GetProperty("share_id").GetString()!;
+
+        var pw = await PostJsonAsync("share/password", new { share_id = shareId }, "取分享链接", ct);
+        var shareUrl2 = pw.TryGetProperty("share_url", out var su) ? su.GetString() ?? "" : "";
+        var pass = hasPass ? options.Passcode
+            : pw.TryGetProperty("passcode", out var pc) && pc.ValueKind == JsonValueKind.String ? pc.GetString() : null;
+        if (!string.IsNullOrEmpty(pass) && !shareUrl2.Contains("?pwd="))
+            shareUrl2 += "?pwd=" + pass;
+        return new PanShare(
+            shareId, shareUrl2, options.Title, pass,
+            options.Files.Count, DateTimeOffset.Now,
+            options.ExpireDays > 0 ? DateTimeOffset.Now.AddDays(options.ExpireDays) : null,
+            PanProvider.Quark);
+    }
+
+    public async Task DeleteSharesAsync(IReadOnlyList<string> shareIds, CancellationToken ct = default) =>
+        await PostJsonAsync("share/delete", new { share_ids = shareIds.ToArray() }, "删除分享", ct);
+
+
     private static PanFile MapFile(JsonElement it, string path)
     {
         var isDir = it.GetProperty("file_type").GetInt32() == 0;

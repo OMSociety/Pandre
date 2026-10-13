@@ -53,3 +53,51 @@ public enum QrLoginState
 
 /// <summary>二维码载荷：百度给服务端图片字节；夸克给文本（由 UI 渲染）。</summary>
 public sealed record QrCodePayload(byte[]? ImagePng, string? Text, string Hint);
+
+// ============ P2：管理与分享 ============
+
+/// <summary>重名策略。</summary>
+public enum PanConflictPolicy
+{
+    /// <summary>同名跳过（rtype=2）。</summary>
+    Skip,
+    /// <summary>覆盖（rtype=3）。</summary>
+    Overwrite,
+}
+
+/// <summary>转存一份外部分享链接到自己网盘的结果。</summary>
+public sealed record PanSaveShareResult(
+    string SavedToDirName,
+    int SavedCount);
+
+/// <summary>一条分享记录（我的分享列表项）。</summary>
+public sealed record PanShare(
+    string ShareId,
+    string ShareUrl,
+    string Title,
+    string? Passcode,
+    long FileCount,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ExpiresAt,
+    PanProvider Provider);
+
+/// <summary>创建分享的参数。</summary>
+public sealed record PanShareOptions(
+    IReadOnlyList<PanFile> Files,
+    string Title,
+    /// <summary>有效期：0=永久（百度 period=0）；夸克 expired_type=1。</summary>
+    int ExpireDays,
+    /// <summary>4 位提取码；null=公开链接（夸克 url_type=1）。</summary>
+    string? Passcode);
+
+/// <summary>离线下载任务。</summary>
+public sealed record PanOfflineTask(
+    string TaskId,
+    string Name,
+    long SizeBytes,
+    long FinishedBytes,
+    /// <summary>0成功/1进行中/2系统错误/3资源不存在/4超时/5失败/6空间不足/7取消。</summary>
+    int Status,
+    string SavePath,
+    string SourceUrl,
+    PanProvider Provider);

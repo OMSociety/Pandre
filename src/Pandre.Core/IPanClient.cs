@@ -2,7 +2,8 @@ namespace Pandre.Core;
 
 /// <summary>
 /// 网盘客户端抽象。P1 范围：配额 / 列表 / 搜索 / 取下载链。
-/// 管理类操作（重命名、移动、删除等）与上传、分享在 P2 扩展本接口。
+/// P2 扩展：管理（建文件夹/重命名/移动/删除）、转存、分享、离线下载（仅百度）。
+/// P2 方法带默认实现（抛 NotSupportedException），客户端按能力覆盖，不影响 P1 已实现方。
 /// </summary>
 public interface IPanClient : IDisposable
 {
@@ -26,6 +27,42 @@ public interface IPanClient : IDisposable
 
     /// <summary>取下载链。链接有时效，应取得后立即交给下载器。</summary>
     Task<IReadOnlyList<PanDownloadLink>> GetDownloadLinksAsync(IReadOnlyList<PanFile> files, CancellationToken ct = default);
+
+    // ============ P2：管理与分享（默认抛 NotSupported，客户端按能力覆盖） ============
+
+    /// <summary>新建文件夹，返回新目录。dir=null 表示根目录。</summary>
+    Task<PanFile> CreateFolderAsync(PanFile? dir, string name, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    Task RenameAsync(PanFile file, string newName, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    /// <summary>移动到目标目录（targetDir=null 表示根目录）。</summary>
+    Task MoveAsync(IReadOnlyList<PanFile> files, PanFile? targetDir, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    Task DeleteAsync(IReadOnlyList<PanFile> files, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    /// <summary>转存外部分享链接到目标目录（targetDir=null 表示根目录）。</summary>
+    Task<PanSaveShareResult> SaveShareAsync(string shareUrl, string? passcode, PanFile? targetDir, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    Task<IReadOnlyList<PanShare>> ListSharesAsync(CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    Task<PanShare> CreateShareAsync(PanShareOptions options, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    Task DeleteSharesAsync(IReadOnlyList<string> shareIds, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    /// <summary>离线下载（仅百度支持）。</summary>
+    Task<PanOfflineTask> AddOfflineTaskAsync(string sourceUrl, PanFile? saveDir, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    Task<IReadOnlyList<PanOfflineTask>> ListOfflineTasksAsync(CancellationToken ct = default) =>
+        throw new NotSupportedException();
 }
 
 /// <summary>一次扫码登录会话：先取二维码展示，再轮询等待确认。</summary>
