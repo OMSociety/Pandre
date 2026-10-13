@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:Pandre.Desktop"
              xmlns:vm="using:Pandre.Desktop.ViewModels"
              x:Class="Pandre.Desktop.Views.DownloadsView"
              x:DataType="vm:DownloadsViewModel">
@@ -8,7 +9,12 @@
     <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
       <TextBlock Grid.Column="0" Classes="secondary" VerticalAlignment="Center"
                  Text="{Binding DownloadDir, StringFormat='保存到：{0}'}" TextTrimming="CharacterEllipsis"/>
-      <Button Grid.Column="1" Content="打开目录" Command="{Binding OpenDirCommand}"/>
+      <Button Grid.Column="1" Command="{Binding OpenDirCommand}">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <PathIcon Data="{x:Static local:AppIcons.FolderOpen}" Width="15" Height="15"/>
+          <TextBlock Text="打开目录" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Button>
     </Grid>
     <!-- 下载行列表 -->
     <ListBox Grid.Row="1" Classes="rows" ItemsSource="{Binding Rows}">
@@ -16,16 +22,16 @@
         <DataTemplate x:DataType="vm:DownloadRowViewModel">
           <Border Classes="row-card">
             <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
-              <PathIcon Grid.Column="0" Data="M12 3v10.17l3.59-3.58L17 11l-5 5-5-5 1.41-1.41L12 13.17V3z"
+              <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
                         Width="20" Height="20" Margin="0,0,12,0"
-                        Foreground="{StaticResource AccentBrush}"/>
+                        Foreground="{DynamicResource AccentBrush}"/>
               <StackPanel Grid.Column="1" VerticalAlignment="Center">
                 <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
                 <Grid ColumnDefinitions="*,Auto" Margin="0,5,0,0">
                   <ProgressBar Grid.Column="0" Value="{Binding Progress}" Maximum="100" Margin="0,0,10,0" VerticalAlignment="Center"/>
-                  <TextBlock Grid.Column="1" Classes="secondary" Text="{Binding SizeText}" VerticalAlignment="Center"/>
+                  <TextBlock Grid.Column="1" Classes="tertiary" Text="{Binding SizeText}" VerticalAlignment="Center"/>
                 </Grid>
-                <TextBlock Classes="secondary" Margin="0,3,0,0">
+                <TextBlock Classes="tertiary" Margin="0,3,0,0">
                   <Run Text="{Binding StatusText}"/><Run Text="  "/><Run Text="{Binding SpeedText}"/>
                 </TextBlock>
               </StackPanel>
@@ -33,17 +39,17 @@
                 <Button Classes="icon-btn" IsVisible="{Binding CanPause}"
                         Command="{Binding $parent[ListBox].((vm:DownloadsViewModel)DataContext).PauseCommand}"
                         CommandParameter="{Binding}">
-                  <PathIcon Data="M6 5h4v14H6z M14 5h4v14h-4z" Width="14" Height="14"/>
+                  <PathIcon Data="{x:Static local:AppIcons.Pause}" Width="14" Height="14"/>
                 </Button>
                 <Button Classes="icon-btn" IsVisible="{Binding CanResume}"
                         Command="{Binding $parent[ListBox].((vm:DownloadsViewModel)DataContext).ResumeCommand}"
                         CommandParameter="{Binding}">
-                  <PathIcon Data="M8 5v14l11-7z" Width="14" Height="14"/>
+                  <PathIcon Data="{x:Static local:AppIcons.Play}" Width="14" Height="14"/>
                 </Button>
                 <Button Classes="icon-btn"
                         Command="{Binding $parent[ListBox].((vm:DownloadsViewModel)DataContext).RemoveCommand}"
                         CommandParameter="{Binding}">
-                  <PathIcon Data="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" Width="14" Height="14"/>
+                  <PathIcon Data="{x:Static local:AppIcons.Delete}" Width="14" Height="14"/>
                 </Button>
               </StackPanel>
             </Grid>

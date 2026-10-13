@@ -25,6 +25,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Remove="assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\assets\windows\aria2c.exe" Link="assets\windows\aria2c.exe" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\assets\windows\aria2-COPYING.txt" Link="assets\windows\aria2-COPYING.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

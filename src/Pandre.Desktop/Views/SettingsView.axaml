@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:Pandre.Desktop"
              xmlns:vm="using:Pandre.Desktop.ViewModels"
              x:Class="Pandre.Desktop.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
@@ -12,7 +13,7 @@
           <TextBlock Classes="card-title" Text="个性化" Margin="0,0,0,8"/>
 
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
-            <PathIcon Grid.Column="0" Data="M12 3a9 9 0 1 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8z"
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.DarkTheme}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
                       Foreground="{StaticResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
@@ -30,7 +31,7 @@
           </Grid>
 
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
-            <PathIcon Grid.Column="0" Data="M3 5h18v12H3z M5 19h14"
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.DarkTheme}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
                       Foreground="{StaticResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
@@ -54,14 +55,18 @@
         <StackPanel Spacing="4">
           <TextBlock Classes="card-title" Text="下载" Margin="0,0,0,8"/>
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
-            <PathIcon Grid.Column="0" Data="M12 3v10.17l3.59-3.58L17 11l-5 5-5-5 1.41-1.41L12 13.17V3z M5 19h14v2H5z"
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
                       Foreground="{StaticResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="下载目录"/>
               <TextBlock Classes="secondary" Text="文件保存到本地的位置"/>
             </StackPanel>
-            <TextBox Grid.Column="2" Text="{Binding DownloadDir}" MinWidth="320" VerticalAlignment="Center"/>
+            <Grid Grid.Column="2" ColumnDefinitions="Auto,Auto" VerticalAlignment="Center">
+              <TextBox Grid.Column="0" Text="{Binding DownloadDir}" MinWidth="320"/>
+              <Button Grid.Column="1" Content="浏览…" Click="OnBrowseDownloadDir" Margin="8,0,0,0"
+                      ToolTip.Tip="选择下载目录"/>
+            </Grid>
           </Grid>
         </StackPanel>
       </Border>

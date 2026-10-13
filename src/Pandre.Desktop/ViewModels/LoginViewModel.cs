@@ -24,14 +24,32 @@ public partial class LoginCardViewModel : ViewModelBase
 
     public string Title { get; }
 
+    /// <summary>弹窗标题图标（与页面图标一致）。</summary>
+    public string Icon => _provider == PanProvider.Baidu ? AppIcons.CloudFilled : AppIcons.CloudSyncFilled;
+
+    /// <summary>扫码提示语。</summary>
+    public string ScanHint => _provider == PanProvider.Baidu
+        ? "用百度网盘 App 或百度 App 扫码"
+        : "用夸克网盘 App 或夸克 App 扫码";
+
     [ObservableProperty][NotifyPropertyChangedFor(nameof(ShowQr))] private Avalonia.Media.Imaging.Bitmap? _qrImage;
     [ObservableProperty] private string _statusText = "未登录";
     [ObservableProperty] private bool _isBusy;
-    [ObservableProperty] private bool _isLoggedIn;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ButtonText))]
+    private bool _isLoggedIn;
     [ObservableProperty] private string _accountText = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ButtonText))]
+    private string _accountName = "";
     [ObservableProperty] private string _hintText = "";
 
     public bool ShowQr => QrImage != null;
+
+    /// <summary>页面右上角登录按钮的文字。</summary>
+    public string ButtonText => IsLoggedIn
+        ? (string.IsNullOrEmpty(AccountName) ? "已登录" : $"已登录 · {AccountName}")
+        : "扫码登录";
 
     [RelayCommand]
     private async Task StartLoginAsync()
@@ -78,12 +96,14 @@ public partial class LoginCardViewModel : ViewModelBase
                 ? (IPanClient)AppServices.Baidu : AppServices.Quark;
             var info = await client.GetAccountAsync(_waitCts.Token);
             IsLoggedIn = true;
-            AccountText = $"{(info.Nickname ?? cred.Nickname ?? "已登录")} · {FmtSize(info.UsedBytes)} / {FmtSize(info.TotalBytes)}";
+            AccountName = info.Nickname ?? cred.Nickname ?? "已登录";
+            AccountText = $"{AccountName} · {FmtSize(info.UsedBytes)} / {FmtSize(info.TotalBytes)}";
             StatusText = "已登录";
             QrImage = null;
 
             // 通知外层刷新导航可用性
             RaiseSessionChanged();
+            RaiseLoginSucceeded();
         }
         catch (OperationCanceledException) { StatusText = "已取消"; }
         catch (PanException ex) { StatusText = $"登录失败：{ex.Message}"; System.Diagnostics.Debug.WriteLine(ex); }
@@ -111,6 +131,7 @@ public partial class LoginCardViewModel : ViewModelBase
     {
         await AppServices.Credentials.ClearAsync(_provider);
         IsLoggedIn = false;
+        AccountName = "";
         AccountText = "";
         StatusText = "未登录";
         QrImage = null;
@@ -128,7 +149,8 @@ public partial class LoginCardViewModel : ViewModelBase
             client.Attach(cred);
             var info = await client.GetAccountAsync();
             IsLoggedIn = true;
-            AccountText = $"{(info.Nickname ?? cred.Nickname ?? "已登录")} · {FmtSize(info.UsedBytes)} / {FmtSize(info.TotalBytes)}";
+            AccountName = info.Nickname ?? cred.Nickname ?? "已登录";
+            AccountText = $"{AccountName} · {FmtSize(info.UsedBytes)} / {FmtSize(info.TotalBytes)}";
             StatusText = "已登录";
         }
         catch (PanException ex) when (ex.IsAuthExpired)
@@ -156,9 +178,13 @@ public partial class LoginCardViewModel : ViewModelBase
 
     public event Action? SessionChanged;
     private void RaiseSessionChanged() => SessionChanged?.Invoke();
+
+    /// <summary>本次扫码登录成功（区别于"启动时恢复登录态"）。</summary>
+    public event Action? LoginSucceeded;
+    private void RaiseLoginSucceeded() => LoginSucceeded?.Invoke();
 }
 
-/// <summary>登录页：百度 + 夸克两张卡。</summary>
+/// <summary>百度 + 夸克两张登录卡的容器（卡片显示在各网盘页的扫码弹窗里）。</summary>
 public partial class LoginViewModel : ViewModelBase
 {
     public LoginCardViewModel Baidu { get; }

@@ -26,6 +26,9 @@ public partial class FileRowViewModel : ViewModelBase
     public string SizeText { get; }
     public string ModifiedText { get; }
 
+    /// <summary>目录用 Folder、文件用 Document（Fluent System Icons）。</summary>
+    public string Icon => File.IsDirectory ? AppIcons.Folder : AppIcons.Document;
+
     [ObservableProperty] private Avalonia.Media.Imaging.Bitmap? _thumb;
 
     private async Task LoadThumbAsync(string url)
@@ -81,12 +84,15 @@ public partial class PanViewModel : ViewModelBase
     {
         if (!IsLoggedIn)
         {
-            StatusMessage = "未登录：请先到「登录」页扫码";
+            StatusMessage = "未登录：点右上角「扫码登录」";
             Files.Clear();
             return;
         }
         if (Files.Count == 0) await RefreshAsync();
     }
+
+    /// <summary>外部触发刷新（例如刚扫码登录成功）。</summary>
+    public Task ReloadAsync() => LoadCurrentAsync();
 
     [RelayCommand]
     private async Task RefreshAsync() => await LoadCurrentAsync();
@@ -169,7 +175,7 @@ public partial class PanViewModel : ViewModelBase
         }
         catch (PanException ex) when (ex.IsAuthExpired)
         {
-            StatusMessage = "登录已过期，请到「登录」页重新扫码";
+            StatusMessage = "登录已过期，点右上角重新扫码";
             Files.Clear();
         }
         catch (PanException ex) { StatusMessage = $"加载失败：{ex.Message}"; }

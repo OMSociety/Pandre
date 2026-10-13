@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:Pandre.Desktop"
         xmlns:vm="using:Pandre.Desktop.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -11,44 +12,146 @@
         MinWidth="900" MinHeight="600"
         Icon="/Assets/avalonia-logo.ico"
         TransparencyLevelHint="Mica, AcrylicBlur"
-        Background="Transparent">
+        Background="Transparent"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="40"
+        WindowDecorations="BorderOnly">
 
-  <Grid ColumnDefinitions="72,*">
-    <!-- 窄侧栏：图标+文字导航 -->
-    <Border Background="{DynamicResource NavBgBrush}">
+  <Grid RowDefinitions="40,*" ColumnDefinitions="72,*">
+    <!-- 窄侧栏：贯通整窗高度（含标题栏行），logo 与导航整体上移 -->
+    <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Background="{DynamicResource NavBgBrush}">
       <Grid RowDefinitions="Auto,*,Auto">
-        <!-- 顶部 Logo -->
-        <Border Grid.Row="0" Margin="0,14,0,10">
-          <PathIcon Data="M12 3a5 5 0 0 0-4.9 4.1A4.5 4.5 0 0 0 7.5 16h9a4 4 0 0 0 .6-7.96A5.5 5.5 0 0 0 12 3z"
-                    Width="24" Height="24" Foreground="{StaticResource AccentBrush}"
+        <!-- 顶部 Logo：中心落在「窗口顶端 → 首条导航项顶端」的中点，导航项位置保持不变 -->
+        <Border Grid.Row="0" Margin="0,14,0,4">
+          <PathIcon Data="{x:Static local:AppIcons.CloudSyncFilled}"
+                    Width="24" Height="24" Foreground="{DynamicResource AccentBrush}"
                     HorizontalAlignment="Center"/>
         </Border>
-        <!-- 导航 -->
-        <ListBox Grid.Row="1" Classes="nav" ItemsSource="{Binding NavItems}" SelectedItem="{Binding SelectedNav}">
-          <ListBox.ItemTemplate>
-            <DataTemplate x:DataType="vm:NavItem">
-              <StackPanel Classes="nav-item" HorizontalAlignment="Center" Margin="0,10">
-                <PathIcon Width="20" Height="20" HorizontalAlignment="Center"
-                          Foreground="{StaticResource TextPrimaryBrush}"
-                          Data="{Binding Icon}"/>
-                <TextBlock Text="{Binding Title}" FontSize="11" HorizontalAlignment="Center"
-                           Foreground="{StaticResource TextPrimaryBrush}"/>
-              </StackPanel>
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
+        <!-- 导航（共享指示条悬浮在上，位置由代码后置测量实际项坐标） -->
+        <Grid Grid.Row="1" x:Name="NavArea" Margin="0,8,0,0">
+          <ListBox x:Name="NavList" Classes="nav" ItemsSource="{Binding NavItems}" SelectedItem="{Binding SelectedNav}">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:NavItem">
+                <Border Classes="nav-item" Margin="0,1" MinHeight="52">
+                  <StackPanel Orientation="Vertical" Spacing="2"
+                              HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <PathIcon Width="20" Height="20" HorizontalAlignment="Center"
+                              Foreground="{DynamicResource TextPrimaryBrush}"
+                              Data="{Binding CurrentIcon}"/>
+                    <TextBlock Text="{Binding Title}" FontSize="12" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <!-- 共享果冻指示条：代码后置实测定位，竖直居中由布局负责 -->
+          <Border x:Name="NavIndicator" Width="3" Height="20" CornerRadius="2"
+                  IsHitTestVisible="False" IsVisible="False"
+                  HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"
+                  Background="{DynamicResource AccentBrush}"/>
+        </Grid>
       </Grid>
     </Border>
 
+    <!-- 标题栏拖拽区（仅内容列） -->
+    <Border Grid.Row="0" Grid.Column="1" Background="Transparent" x:Name="TitleDragArea"
+            PointerPressed="OnTitleBarPointerPressed"/>
+
+    <!-- 窗口按钮自绘：装饰层 WindowDecorations=BorderOnly 只画边框与缩放 -->
+    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal"
+                HorizontalAlignment="Right" VerticalAlignment="Stretch">
+      <Button Classes="caption" Click="OnMinimizeClick" ToolTip.Tip="最小化">
+        <Rectangle Width="10" Height="1" Fill="{DynamicResource TextPrimaryBrush}"/>
+      </Button>
+      <Button Classes="caption" Click="OnMaximizeClick" ToolTip.Tip="最大化 / 还原">
+        <Grid Width="10" Height="10">
+          <Rectangle x:Name="MaxIcon" Width="10" Height="10" StrokeThickness="1"
+                     Stroke="{DynamicResource TextPrimaryBrush}" Fill="Transparent"/>
+          <Grid x:Name="RestoreIcon" Width="10" Height="10" IsVisible="False">
+            <Rectangle Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Top"
+                       StrokeThickness="1" Stroke="{DynamicResource TextPrimaryBrush}" Fill="Transparent"/>
+            <Rectangle Width="8" Height="8" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                       StrokeThickness="1" Stroke="{DynamicResource TextPrimaryBrush}"
+                       Fill="{DynamicResource NavBgBrush}"/>
+          </Grid>
+        </Grid>
+      </Button>
+      <Button Classes="caption caption-close" Click="OnCloseClick" ToolTip.Tip="关闭">
+        <PathIcon Data="{x:Static local:AppIcons.Dismiss}" Width="12" Height="12"/>
+      </Button>
+    </StackPanel>
+
     <!-- 内容区 -->
-    <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" Margin="20,16">
-      <!-- 页头 -->
-      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,14">
-        <TextBlock Grid.Column="0" Classes="title" Text="{Binding SelectedNav.Title}" VerticalAlignment="Center"/>
-        <TextBlock Grid.Column="1" Classes="secondary" Text="{Binding StatusText}" VerticalAlignment="Center"/>
-      </Grid>
-      <!-- 页面 -->
-      <ContentControl Grid.Row="1" Content="{Binding CurrentPage}"/>
+    <Grid Grid.Row="1" Grid.Column="1" RowDefinitions="Auto,*,Auto" Margin="20,12,20,16">
+          <!-- 页头：右侧为当前网盘的登录按钮（非网盘页无按钮） -->
+          <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+            <TextBlock Grid.Column="0" Classes="title" Text="{Binding SelectedNav.Title}" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Command="{Binding OpenLoginPanelCommand}"
+                    IsVisible="{Binding LoginCard, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Padding="12,5" VerticalAlignment="Center" ToolTip.Tip="扫码登录 / 查看账号">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{Binding LoginCard.Icon}" Width="14" Height="14"/>
+                <TextBlock Text="{Binding LoginCard.ButtonText}" FontSize="12"/>
+              </StackPanel>
+            </Button>
+          </Grid>
+          <!-- 页面（带切换动效） -->
+          <TransitioningContentControl Grid.Row="1" Content="{Binding CurrentPage}"
+                                       IsTransitionReversed="{Binding IsNavBack}">
+            <TransitioningContentControl.PageTransition>
+              <!-- 浮起进场：旧页 150ms 淡出，新页从下方 20px 淡入上浮 -->
+              <local:ConnectedFadeTransition />
+            </TransitioningContentControl.PageTransition>
+          </TransitioningContentControl>
+        </Grid>
+
+    <!-- 登录伪弹窗：遮罩 + 抬升卡片（点遮罩空白处或 Esc 关闭） -->
+    <Grid x:Name="LoginOverlay" Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2"
+          Background="{DynamicResource ScrimBrush}"
+          IsVisible="{Binding IsLoginPanelOpen}"
+          PointerPressed="OnOverlayPointerPressed">
+      <Border Classes="dialog" Width="380" HorizontalAlignment="Center" VerticalAlignment="Center"
+              DataContext="{Binding LoginCard}" x:DataType="vm:LoginCardViewModel">
+        <Grid RowDefinitions="Auto,Auto,Auto">
+          <!-- 标题行 -->
+          <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto">
+            <PathIcon Grid.Column="0" Data="{Binding Icon}" Width="20" Height="20"
+                      Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Classes="card-title" Margin="9,0,0,0" VerticalAlignment="Center"
+                       Text="{Binding Title}"/>
+            <Button Grid.Column="2" Classes="icon-btn" Click="OnCloseLoginPanelClick" ToolTip.Tip="关闭">
+              <PathIcon Data="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4 17.6 5 12 10.6z" Width="11" Height="11"/>
+            </Button>
+          </Grid>
+
+          <!-- 内容 -->
+          <StackPanel Grid.Row="1" Spacing="12" Margin="0,14,0,0">
+            <TextBlock Classes="secondary" Text="{Binding ScanHint}"
+                       IsVisible="{Binding !IsLoggedIn}"/>
+            <Border Classes="qr-frame" Width="216" Height="216" HorizontalAlignment="Center"
+                    IsVisible="{Binding ShowQr}">
+              <Image Source="{Binding QrImage}" Stretch="Uniform"/>
+            </Border>
+            <TextBlock Text="{Binding StatusText}" HorizontalAlignment="Center" TextWrapping="Wrap"/>
+            <TextBlock Classes="secondary" Text="{Binding AccountText}" HorizontalAlignment="Center"
+                       TextWrapping="Wrap" IsVisible="{Binding IsLoggedIn}"/>
+          </StackPanel>
+
+          <!-- 操作 -->
+          <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10"
+                      HorizontalAlignment="Center" Margin="0,16,0,0">
+            <Button Classes="primary" Content="扫码登录" Command="{Binding StartLoginCommand}"
+                    IsVisible="{Binding !IsLoggedIn}"/>
+            <Button Content="取消" Command="{Binding CancelCommand}"
+                    IsVisible="{Binding IsBusy}"/>
+            <Button Content="关闭" Click="OnCloseLoginPanelClick"
+                    IsVisible="{Binding !IsBusy}"/>
+            <Button Content="退出登录" Command="{Binding LogoutCommand}"
+                    IsVisible="{Binding IsLoggedIn}"/>
+          </StackPanel>
+        </Grid>
+      </Border>
     </Grid>
   </Grid>
 </Window>

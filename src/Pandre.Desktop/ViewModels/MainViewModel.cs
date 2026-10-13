@@ -2,15 +2,28 @@ using System;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Pandre.Core;
 
 namespace Pandre.Desktop.ViewModels;
 
-public sealed class NavItem
+public sealed partial class NavItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
     public required string Title { get; init; }
-    public required string Icon { get; init; }   // PathGeometry Figures 字符串
+    public required string Icon { get; init; }         // Regular（未选中）
+    public string? IconFilled { get; init; }           // Filled（当前页）
     public required ViewModelBase Page { get; init; }
+
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    [CommunityToolkit.Mvvm.ComponentModel.NotifyPropertyChangedFor(nameof(PanelClasses))]
+    [CommunityToolkit.Mvvm.ComponentModel.NotifyPropertyChangedFor(nameof(CurrentIcon))]
+    private bool _isCurrent;
+
+    /// <summary>当前页面板类名（配合 App.axaml 的 .nav-item/.current 样式）。</summary>
+    public string PanelClasses => IsCurrent ? "nav-item current" : "nav-item";
+
+    /// <summary>当前页图标：Filled 优先，回落 Regular。</summary>
+    public string CurrentIcon => IsCurrent ? (IconFilled ?? Icon) : Icon;
 }
 
 public partial class MainViewModel : ViewModelBase
@@ -25,7 +38,19 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty] private NavItem? _selectedNav;
     [ObservableProperty] private ViewModelBase? _currentPage;
-    [ObservableProperty] private string _statusText = "";
+    [ObservableProperty] private bool _isNavBack;
+
+    /// <summary>当前页面对应的登录卡（百度/夸克页才有，其余页为 null）。</summary>
+    [ObservableProperty] private LoginCardViewModel? _loginCard;
+
+    /// <summary>登录伪弹窗是否打开。</summary>
+    [ObservableProperty] private bool _isLoginPanelOpen;
+
+    /// <summary>登录态是否已从磁盘恢复完成（恢复期间不触发刷新）。</summary>
+    private bool _sessionRestored;
+
+    /// <summary>构造与登录态恢复期间抑制页面激活（那时凭据还没挂上）。</summary>
+    private bool _suppressPageActivation = true;
 
     public MainViewModel()
     {
@@ -35,56 +60,88 @@ public partial class MainViewModel : ViewModelBase
         Quark = new PanViewModel(PanProvider.Quark, Downloads);
         Settings = new SettingsViewModel();
 
-        // 图标 geometry：钥匙 / 云(百度) / 云(夸克) / 向下箭头 / 齿轮
-        const string keyIcon = "M14 10a4 4 0 1 0-3.9 5H11v2h2v2h2v2h4v-4.5L14.5 12A4 4 0 0 0 14 10zm-4 2a2 2 0 1 1 0-4 2 2 0 0 1 0 4z";
-        const string cloudIcon = "M12 3a5 5 0 0 0-4.9 4.1A4.5 4.5 0 0 0 7.5 16h9a4 4 0 0 0 .6-7.96A5.5 5.5 0 0 0 12 3z";
-        const string downIcon = "M12 3v10.17l3.59-3.58L17 11l-5 5-5-5 1.41-1.41L12 13.17V3h0zm-7 15h14v2H5v-2z";
-        const string gearIcon = "M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z";
+        // 微软 Fluent System Icons（MIT），见 Icons.cs
         NavItems = new ObservableCollection<NavItem>
         {
-            new() { Title = "登录", Icon = keyIcon, Page = Login },
-            new() { Title = "百度", Icon = cloudIcon, Page = Baidu },
-            new() { Title = "夸克", Icon = cloudIcon, Page = Quark },
-            new() { Title = "下载", Icon = downIcon, Page = Downloads },
-            new() { Title = "设置", Icon = gearIcon, Page = Settings },
+            new() { Title = "百度", Icon = AppIcons.Cloud, IconFilled = AppIcons.CloudFilled, Page = Baidu },
+            new() { Title = "夸克", Icon = AppIcons.CloudSync, IconFilled = AppIcons.CloudSyncFilled, Page = Quark },
+            new() { Title = "下载", Icon = AppIcons.ArrowDownload, IconFilled = AppIcons.ArrowDownloadFilled, Page = Downloads },
+            new() { Title = "设置", Icon = AppIcons.Settings, IconFilled = AppIcons.SettingsFilled, Page = Settings },
         };
-        // 默认进登录页（首次启动没凭据）
         SelectedNav = NavItems[0];
-        CurrentPage = Login;
+        NavItems[0].IsCurrent = true;
+        CurrentPage = Baidu;
+        LoginCard = Login.Baidu;
 
         Login.Baidu.SessionChanged += OnSessionChanged;
         Login.Quark.SessionChanged += OnSessionChanged;
+        Login.Baidu.LoginSucceeded += OnLoginSucceeded;
+        Login.Quark.LoginSucceeded += OnLoginSucceeded;
     }
 
     partial void OnSelectedNavChanged(NavItem? value)
     {
         if (value == null) return;
+        var oldIdx = _selectedNav != null ? NavItems.IndexOf(_selectedNav) : -1;
+        var newIdx = NavItems.IndexOf(value);
+        IsNavBack = newIdx < oldIdx;
+        foreach (var n in NavItems) n.IsCurrent = n == value;
         CurrentPage = value.Page;
+        // 顶栏登录按钮跟着页面走：只有百度/夸克页有
+        LoginCard = ReferenceEquals(value.Page, Baidu) ? Login.Baidu
+                  : ReferenceEquals(value.Page, Quark) ? Login.Quark
+                  : null;
+        if (LoginCard is not { IsLoggedIn: true }) IsLoginPanelOpen = false;
+        if (_suppressPageActivation) return;
         // 进入网盘页时按需激活
         if (value.Page is PanViewModel p) _ = p.ActivateAsync();
         else if (value.Page is DownloadsViewModel d) d.Refresh();
     }
 
+    [RelayCommand]
+    private void OpenLoginPanel()
+    {
+        if (LoginCard != null) IsLoginPanelOpen = true;
+    }
+
+    [RelayCommand]
+    private void CloseLoginPanel() => IsLoginPanelOpen = false;
+
     private void OnSessionChanged()
     {
-        StatusText = (Services.AppServices.Baidu.IsAuthenticated ? "百度已登录 " : "")
-                   + (Services.AppServices.Quark.IsAuthenticated ? "夸克已登录" : "");
+        // 登录成功后把当前网盘页刷出来
+        if (_sessionRestored && CurrentPage is PanViewModel pan) _ = pan.ReloadAsync();
+    }
+
+    /// <summary>本次扫码登录成功 → 收起弹窗（启动时恢复登录态不走这里）。</summary>
+    private void OnLoginSucceeded()
+    {
+        if (IsLoginPanelOpen) IsLoginPanelOpen = false;
     }
 
     /// <summary>启动时初始化：恢复登录态。</summary>
     public async Task InitAsync()
     {
-        StatusText = "正在恢复登录态…";
         await Login.InitAsync();
         OnSessionChanged();
-        // 若已有任一登录，默认停在第一个网盘页
-        if (Login.Baidu.IsLoggedIn) SelectedNav = NavItems[1];
-        else if (Login.Quark.IsLoggedIn) SelectedNav = NavItems[2];
-        if (string.IsNullOrEmpty(StatusText)) StatusText = "就绪";
+        _sessionRestored = true;
+        // 默认停在已登录的网盘页，都没有则停在百度页
+        SelectedNav = Login.Quark.IsLoggedIn && !Login.Baidu.IsLoggedIn ? NavItems[1] : NavItems[0];
 
         // 自动验收：PANDRE_AUTOCHECK=<页索引> 时启动后直跳该页
         var auto = System.Environment.GetEnvironmentVariable("PANDRE_AUTOCHECK");
         if (int.TryParse(auto, out var idx) && idx >= 0 && idx < NavItems.Count)
             SelectedNav = NavItems[idx];
+
+        // 恢复完成后统一激活当前页（此前 SelectedNav 可能没变化、也可能在凭据挂上前就激活过）
+        _suppressPageActivation = false;
+        if (CurrentPage is PanViewModel current) await current.ActivateAsync();
+        else if (CurrentPage is DownloadsViewModel downloads) downloads.Refresh();
+
+        // 首次运行没凭据：直接把当前网盘的扫码弹窗弹出来
+        if (LoginCard is { IsLoggedIn: false }) IsLoginPanelOpen = true;
+
+        // 自动验收：PANDRE_LOGINPANEL=1 时强制弹开扫码弹窗
+        if (System.Environment.GetEnvironmentVariable("PANDRE_LOGINPANEL") == "1") IsLoginPanelOpen = true;
     }
 }
