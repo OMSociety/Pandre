@@ -63,6 +63,15 @@ public interface IPanClient : IDisposable
 
     Task<IReadOnlyList<PanOfflineTask>> ListOfflineTasksAsync(CancellationToken ct = default) =>
         throw new NotSupportedException();
+
+    /// <summary>
+    /// 上传本地文件到目标目录（targetDir=null 表示根目录）。
+    /// 百度走 precreate 秒传→superfile2 分片→create 合并；夸克走 upload/pre→分片→finish。
+    /// </summary>
+    Task<PanUploadResult> UploadAsync(
+        string localPath, PanFile? targetDir, PanConflictPolicy policy = PanConflictPolicy.Skip,
+        IProgress<PanUploadProgress>? progress = null, CancellationToken ct = default) =>
+        throw new NotSupportedException();
 }
 
 /// <summary>一次扫码登录会话：先取二维码展示，再轮询等待确认。</summary>

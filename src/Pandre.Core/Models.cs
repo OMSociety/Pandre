@@ -101,3 +101,18 @@ public sealed record PanOfflineTask(
     string SavePath,
     string SourceUrl,
     PanProvider Provider);
+
+// ============ P2：上传 ============
+
+/// <summary>上传进度上报。</summary>
+public readonly record struct PanUploadProgress(
+    long TotalBytes,
+    long DoneBytes,
+    int TotalParts,
+    int DoneParts,
+    string Phase);
+
+/// <summary>上传结果。Rapid=true 表示秒传命中（未走真实分片传输）。</summary>
+public sealed record PanUploadResult(
+    bool Rapid,
+    PanFile File);

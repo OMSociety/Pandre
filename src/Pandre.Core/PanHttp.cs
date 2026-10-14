@@ -19,6 +19,10 @@ public static class PanHttp
     /// <summary>百度下载链（dlink/pcs streaming）要求的 UA。</summary>
     public const string BaiduNetdiskUa = "netdisk";
 
+    /// <summary>百度网盘客户端 UA：PCS REST 端点（superfile2 上传等）用它，否则服务器断连。</summary>
+    public const string BaiduNetdiskClientUa =
+        "netdisk;P2SP;3.0.0.8;netdisk;11.12.3;ANG-AN00;android-android;10.0;JSbridge4.4.0;jointBridge;1.1.0;";
+
     public static readonly string[] QuarkCookieHosts =
         ["https://pan.quark.cn", "https://drive-pc.quark.cn", "https://uop.quark.cn", "https://quark.cn"];
 
