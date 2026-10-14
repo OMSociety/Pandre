@@ -25,7 +25,7 @@ public partial class LoginCardViewModel : ViewModelBase
     public string Title { get; }
 
     /// <summary>弹窗标题图标（与页面图标一致）。</summary>
-    public string Icon => _provider == PanProvider.Baidu ? AppIcons.CloudFilled : AppIcons.CloudSyncFilled;
+    public string Icon => _provider == PanProvider.Baidu ? AppIcons.BaiduNetdisk : AppIcons.QuarkNetdisk;
 
     /// <summary>扫码提示语。</summary>
     public string ScanHint => _provider == PanProvider.Baidu

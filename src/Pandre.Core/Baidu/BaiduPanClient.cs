@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Pandre.Core.Baidu;
 
@@ -467,6 +468,154 @@ public sealed class BaiduPanClient : IPanClient
     }
 
     /// <summary>我的分享列表（share/record，时间倒序；不含提取码——百度要查得逐个调 share/surlinfo，不做）。</summary>
+    // ============ P2：转存（share/verify → 分享页 locals.mset → share/transfer，规格交叉验证 hxz393/BaiduPCS-Go/drunkdream） ============
+
+    private string? _bdstoken;
+
+    private async Task<string> GetBdstokenAsync(CancellationToken ct)
+    {
+        if (_bdstoken != null) return _bdstoken;
+        var fields = Uri.EscapeDataString("[\"bdstoken\"]");
+        var root = JsonDocument.Parse(await Http.GetStringAsync(
+            $"{ApiBase}/api/gettemplatevariable?clienttype=0&app_id=38824127&web=1&fields={fields}", ct)).RootElement;
+        ThrowIfErrno(root, "取 bdstoken");
+        _bdstoken = root.GetProperty("result").GetProperty("bdstoken").GetString()
+            ?? throw new PanException("百度转存-bdstoken 为空");
+        return _bdstoken;
+    }
+
+    private void SetCookie(string name, string value)
+    {
+        if (_jar == null) return;
+        foreach (var host in PanHttp.BaiduCookieHosts)
+            try { _jar.Add(new Uri(host), new Cookie(name, value, "/")); } catch (CookieException) { }
+    }
+
+    private void ClearCookie(string name)
+    {
+        if (_jar == null) return;
+        foreach (var host in PanHttp.BaiduCookieHosts)
+            foreach (Cookie c in _jar.GetCookies(new Uri(host)))
+                if (c.Name == name) c.Expired = true;   // 置过期即从容器移除
+    }
+
+    /// <summary>取分享页 HTML（必须用 netdisk 客户端 UA，Chrome UA 会被弹无 loginstate 登录页，BaiduPCS-Go issue#534）。</summary>
+    private async Task<string> GetSharePageHtml(string url, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        // ProductInfo 解析器拒收分号富 UA，必须走不校验通道
+        req.Headers.TryAddWithoutValidation("User-Agent", PanHttp.BaiduNetdiskClientUa);
+        req.Headers.Referrer = new Uri("https://pan.baidu.com/s/");
+        using var resp = await Http.SendAsync(req, ct);
+        return await resp.Content.ReadAsStringAsync(ct);
+    }
+
+    /// <summary>从分享页 HTML 提取 locals.mset(...) 的参数 JSON（花括号配平，兼容多行与嵌套）。</summary>
+    private static string? ExtractLocalsMset(string html)
+    {
+        var at = html.IndexOf("locals.mset(", StringComparison.Ordinal);
+        if (at < 0) return null;
+        var open = html.IndexOf('{', at + 11);
+        if (open < 0) return null;
+        var depth = 0; var inStr = false; var esc = false;
+        for (var i = open; i < html.Length; i++)
+        {
+            var ch = html[i];
+            if (inStr)
+            {
+                if (esc) esc = false;
+                else if (ch == '\\') esc = true;
+                else if (ch == '"') inStr = false;
+                continue;
+            }
+            if (ch == '"') inStr = true;
+            else if (ch == '{') depth++;
+            else if (ch == '}')
+            {
+                if (--depth == 0) return html.Substring(open, i - open + 1);
+            }
+        }
+        return null;
+    }
+
+    public async Task<PanSaveShareResult> SaveShareAsync(string shareUrl, string? passcode, PanFile? targetDir, CancellationToken ct = default)
+    {
+        // 归一化：兼容 /share/init?surl= 与 ?pwd=
+        var url = shareUrl.Trim();
+        string key; // /s/ 后面的完整 key（首字符通常为 1）
+        var m = url.Contains("pan.baidu.com/share/init")
+            ? Regex.Match(url, @"surl=([0-9A-Za-z_-]+)")
+            : Regex.Match(url, @"pan\.baidu\.com/s/([0-9A-Za-z_-]+)");
+        if (!m.Success) throw new PanException("不是百度分享链接（应形如 https://pan.baidu.com/s/1…）");
+        key = m.Groups[1].Value;
+        if (!key.StartsWith('1')) key = "1" + key;
+
+        ClearCookie("BDCLND");   // 上个链接的提取码 cookie 会串味，先剥掉（drunkdream 实证）
+        var bdstoken = await GetBdstokenAsync(ct);
+        var surl = key[1..];     // verify 的 surl 参数不带首字符 '1'（hxz393 口径）
+
+        // 1. 验证提取码（可选）：randsk 只走 Cookie BDCLND，无 query 参数
+        if (!string.IsNullOrEmpty(passcode))
+        {
+            var t = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+            var vUrl = $"{ApiBase}/share/verify?surl={surl}&bdstoken={bdstoken}&t={t}" +
+                       $"&channel=chunlei&web=1&clienttype=0&app_id={PanAppId}";
+            var vResp = await Http.PostAsync(vUrl,
+                new FormUrlEncodedContent(new Dictionary<string, string>
+                { ["pwd"] = passcode, ["vcode"] = "", ["vcode_str"] = "" }), ct);
+            var vRoot = JsonDocument.Parse(await vResp.Content.ReadAsStringAsync(ct)).RootElement;
+            var verrno = vRoot.TryGetProperty("errno", out var ve) ? ve.GetInt32() : -1;
+            if (verrno != 0)
+                throw new PanException(verrno is -9 or -12 ? "提取码错误" : $"验证提取码失败 errno={verrno}", verrno);
+            if (!vRoot.TryGetProperty("randsk", out var rk) || rk.ValueKind != JsonValueKind.String)
+                throw new PanException("验证提取码响应缺 randsk");
+            SetCookie("BDCLND", rk.GetString()!);
+        }
+
+        // 2. 分享页 locals.mset → shareid / share_uk / 根层 fs_id 列表
+        var html = await GetSharePageHtml($"https://pan.baidu.com/s/{key}", ct);
+        if (html.Contains("platform-non-found") || html.Contains("error-404"))
+            throw new PanException("分享已失效或不存在");
+        var msetJson = ExtractLocalsMset(html);
+        if (msetJson == null) throw new PanException("分享页解析失败（locals.mset 未找到，链接可能失效）");
+        JsonElement meta;
+        try { meta = JsonDocument.Parse(msetJson).RootElement; }
+        catch (JsonException) { throw new PanException("分享页元数据 JSON 解析失败"); }
+        var shareId = meta.GetProperty("shareid").GetInt64().ToString();
+        var shareUk = meta.GetProperty("share_uk").GetString()!;
+
+        var fsIds = new List<long>();
+        if (meta.TryGetProperty("file_list", out var fl) && fl.ValueKind == JsonValueKind.Array)
+            foreach (var f in fl.EnumerateArray())
+                if (f.TryGetProperty("fs_id", out var fid)) fsIds.Add(fid.GetInt64());
+        if (fsIds.Count == 0) throw new PanException("分享里没有可转存的文件");
+
+        // 3. 转存：path=目标父目录（须已存在）；ondup=newcopy 同名生成副本不报错；目录 fs_id 一次转即递归整棵子树
+        var targetPath = (targetDir?.Path ?? "/").TrimEnd('/');
+        if (targetPath == "") targetPath = "/";
+        var trUrl = $"{ApiBase}/share/transfer?shareid={shareId}&from={shareUk}&bdstoken={bdstoken}" +
+                    $"&channel=chunlei&web=1&clienttype=0&app_id={PanAppId}&ondup=newcopy";
+        var trResp = await Http.PostAsync(trUrl,
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            { ["fsidlist"] = "[" + string.Join(",", fsIds) + "]", ["path"] = targetPath }), ct);
+        var trRoot = JsonDocument.Parse(await trResp.Content.ReadAsStringAsync(ct)).RootElement;
+        var terrno = trRoot.TryGetProperty("errno", out var te) ? te.GetInt32() : -1;
+        if (terrno != 0)
+            throw new PanException(terrno switch
+            {
+                -4 or -6 => "登录态失效，请重新扫码",
+                -8 or 4 => "目标目录已有同名文件",
+                -10 or 20 => "网盘容量不足",
+                2 => "参数错误或目标目录不存在",
+                12 => "转存文件数超过限制（免费用户单次约 500 项）",
+                111 => "请求过快，请稍后重试",
+                _ => $"转存失败 errno={terrno}",
+            }, terrno);
+        var saved = trRoot.TryGetProperty("info", out var info) && info.ValueKind == JsonValueKind.Array
+            ? info.GetArrayLength() : fsIds.Count;
+        return new PanSaveShareResult(targetDir?.Name ?? "根目录", saved);
+    }
+
     public async Task<IReadOnlyList<PanShare>> ListSharesAsync(CancellationToken ct = default)
     {
         var root = JsonDocument.Parse(await Http.GetStringAsync(

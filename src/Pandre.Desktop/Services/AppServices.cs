@@ -19,6 +19,12 @@ public static class AppServices
 
     public static DownloadManager Downloads { get; } = new();
 
+    /// <summary>项目仓库地址（关于页跳转用）。</summary>
+    public const string RepositoryUrl = "https://github.com/OMSociety/Pandre";
+
+    /// <summary>开发者主页地址（关于页跳转用）。</summary>
+    public const string AuthorUrl = "https://github.com/OMSociety";
+
     // ===== 设置（theme/material/downloadDir 统一持久化到 settings.json） =====
 
     /// <summary>主题：system / light / dark</summary>
@@ -57,6 +63,32 @@ public static class AppServices
         set { var s = LoadSettings(); s.Aria2MaxConcurrent = Math.Clamp(value, 1, 20); SaveSettings(s); }
     }
 
+    // ===== 功能开关（全局：百度与夸克同时生效） =====
+
+    /// <summary>功能开关变化后通知各页面刷新可见性。设置页改动时触发。</summary>
+    public static event Action? FeatureFlagsChanged;
+
+    /// <summary>是否启用「转存」（外部分享链接保存到当前目录）。</summary>
+    public static bool ShowSaveShare
+    {
+        get => LoadSettings().ShowSaveShare ?? true;
+        set { var s = LoadSettings(); s.ShowSaveShare = value; SaveSettings(s); FeatureFlagsChanged?.Invoke(); }
+    }
+
+    /// <summary>是否启用「离线下载」（百度 magnet/ed2k 云端下载）。</summary>
+    public static bool ShowOfflineDownload
+    {
+        get => LoadSettings().ShowOfflineDownload ?? true;
+        set { var s = LoadSettings(); s.ShowOfflineDownload = value; SaveSettings(s); FeatureFlagsChanged?.Invoke(); }
+    }
+
+    /// <summary>是否启用「分享管理」（列出/复制/取消我的分享）。</summary>
+    public static bool ShowShareManage
+    {
+        get => LoadSettings().ShowShareManage ?? true;
+        set { var s = LoadSettings(); s.ShowShareManage = value; SaveSettings(s); FeatureFlagsChanged?.Invoke(); }
+    }
+
     private sealed class Settings
     {
         public string? Theme { get; set; }
@@ -64,6 +96,9 @@ public static class AppServices
         public string? DownloadDir { get; set; }
         public int? Aria2Connections { get; set; }
         public int? Aria2MaxConcurrent { get; set; }
+        public bool? ShowSaveShare { get; set; }
+        public bool? ShowOfflineDownload { get; set; }
+        public bool? ShowShareManage { get; set; }
     }
 
     private static string SettingsPath => Path.Combine(

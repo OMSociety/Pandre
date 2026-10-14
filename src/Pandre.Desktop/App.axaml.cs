@@ -21,6 +21,9 @@ public partial class App : Application
             var win = new Views.MainWindow { DataContext = vm };
             desktop.MainWindow = win;
 
+            // 强调色跟随系统：把当前 Windows 强调色写进深浅两套主题字典（系统换色时即时跟随）
+            AccentService.Attach();
+
             // 应用持久化的主题与透明材质
             AppServices.ApplyTheme();
             AppServices.ApplyMaterial();

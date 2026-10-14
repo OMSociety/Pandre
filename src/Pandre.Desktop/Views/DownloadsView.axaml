@@ -60,43 +60,45 @@
           </ListBox.ItemTemplate>
         </ListBox>
 
-        <!-- 云端离线下载（百度） -->
-        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,18,0,8">
-          <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.CloudArrowDown}"
-                    Width="18" Height="18" VerticalAlignment="Center" Margin="0,0,10,0"
-                    Foreground="{DynamicResource TextSecondaryBrush}"/>
-          <TextBlock Grid.Column="1" Text="云端离线下载（百度）" FontWeight="SemiBold" VerticalAlignment="Center"/>
-          <Button Grid.Column="2" Command="{Binding RefreshOfflineCommand}" ToolTip.Tip="刷新云端任务列表">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <PathIcon Data="{x:Static local:AppIcons.ArrowClockwise}" Width="14" Height="14"/>
-              <TextBlock Text="刷新" VerticalAlignment="Center"/>
-            </StackPanel>
-          </Button>
-        </Grid>
-        <ItemsControl ItemsSource="{Binding OfflineRows}" IsVisible="{Binding OfflineLoaded}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:OfflineTaskRowViewModel">
-              <Border Classes="row-card" Margin="0,0,0,8">
-                <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
-                  <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.CloudArrowDown}"
-                            Width="20" Height="20" Margin="0,0,12,0"
-                            Foreground="{DynamicResource AccentBrush}"/>
-                  <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Classes="tertiary" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"
-                               Text="{Binding SavePath, StringFormat='保存到：{0}'}"/>
-                  </StackPanel>
-                  <StackPanel Grid.Column="2" HorizontalAlignment="Right" Spacing="3" Margin="14,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Classes="secondary" Text="{Binding StatusText}"/>
-                    <TextBlock Classes="tertiary" Text="{Binding SizeText}"/>
-                  </StackPanel>
-                </Grid>
-              </Border>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        <TextBlock Classes="secondary" Text="点「刷新」拉取云端离线下载任务"
-                   IsVisible="{Binding !OfflineLoaded}" Margin="0,4,0,0"/>
+        <!-- 云端离线下载（百度）；整块跟随设置页「离线下载」开关 -->
+        <StackPanel IsVisible="{Binding ShowOfflineSection}">
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,18,0,8">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.CloudArrowDown}"
+                      Width="18" Height="18" VerticalAlignment="Center" Margin="0,0,10,0"
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <TextBlock Grid.Column="1" Text="云端离线下载（百度）" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Button Grid.Column="2" Command="{Binding RefreshOfflineCommand}" ToolTip.Tip="刷新云端任务列表">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{x:Static local:AppIcons.ArrowClockwise}" Width="14" Height="14"/>
+                <TextBlock Text="刷新" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
+          </Grid>
+          <ItemsControl ItemsSource="{Binding OfflineRows}" IsVisible="{Binding OfflineLoaded}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:OfflineTaskRowViewModel">
+                <Border Classes="row-card" Margin="0,0,0,8">
+                  <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+                    <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.CloudArrowDown}"
+                              Width="20" Height="20" Margin="0,0,12,0"
+                              Foreground="{DynamicResource AccentBrush}"/>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                      <TextBlock Classes="tertiary" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"
+                                 Text="{Binding SavePath, StringFormat='保存到：{0}'}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" HorizontalAlignment="Right" Spacing="3" Margin="14,0,0,0" VerticalAlignment="Center">
+                      <TextBlock Classes="secondary" Text="{Binding StatusText}"/>
+                      <TextBlock Classes="tertiary" Text="{Binding SizeText}"/>
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Classes="secondary" Text="点「刷新」拉取云端离线下载任务"
+                     IsVisible="{Binding !OfflineLoaded}" Margin="0,4,0,0"/>
+        </StackPanel>
       </StackPanel>
     </ScrollViewer>
     <TextBlock Grid.Row="2" Classes="secondary" Text="{Binding StatusText}" Margin="0,8,0,0"/>

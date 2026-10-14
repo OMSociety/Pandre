@@ -43,6 +43,9 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _aria2Connections = "16";
     [ObservableProperty] private string _aria2MaxConcurrent = "5";
 
+    // 功能开关已挪到独立的「界面功能开关」面板（FeaturePanelViewModel），
+    // 设置页只留一个入口按钮，避免两处各持一份状态。
+
     public SettingsViewModel()
     {
         // 从持久化读当前值

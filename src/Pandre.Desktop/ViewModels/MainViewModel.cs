@@ -35,6 +35,9 @@ public partial class MainViewModel : ViewModelBase
     public DownloadsViewModel Downloads { get; }
     public SettingsViewModel Settings { get; }
 
+    /// <summary>功能开关面板（改一项立即写盘并广播）。</summary>
+    public FeaturePanelViewModel FeaturePanel { get; } = new();
+
     public ObservableCollection<NavItem> NavItems { get; }
 
     [ObservableProperty] private NavItem? _selectedNav;
@@ -46,6 +49,12 @@ public partial class MainViewModel : ViewModelBase
 
     /// <summary>登录伪弹窗是否打开。</summary>
     [ObservableProperty] private bool _isLoginPanelOpen;
+
+    /// <summary>功能开关伪弹窗是否打开。</summary>
+    [ObservableProperty] private bool _isFeaturePanelOpen;
+
+    [RelayCommand] private void OpenFeaturePanel() => IsFeaturePanelOpen = true;
+    [RelayCommand] private void CloseFeaturePanel() => IsFeaturePanelOpen = false;
 
     /// <summary>登录态是否已从磁盘恢复完成（恢复期间不触发刷新）。</summary>
     private bool _sessionRestored;
@@ -61,11 +70,12 @@ public partial class MainViewModel : ViewModelBase
         Quark = new PanViewModel(PanProvider.Quark, Downloads);
         Settings = new SettingsViewModel();
 
-        // 微软 Fluent System Icons（MIT），见 Icons.cs
+        // 两个网盘用各自的品牌图标（Icons.Brand.cs）；下载与设置用微软 Fluent System Icons（MIT），见 Icons.cs
+        // 品牌图标是单色单形态，选中态由背板强调色与左侧指示条表达，不换图标
         NavItems = new ObservableCollection<NavItem>
         {
-            new() { Title = "百度", Icon = AppIcons.Cloud, IconFilled = AppIcons.CloudFilled, Page = Baidu },
-            new() { Title = "夸克", Icon = AppIcons.CloudSync, IconFilled = AppIcons.CloudSyncFilled, Page = Quark },
+            new() { Title = "百度", Icon = AppIcons.BaiduNetdisk, Page = Baidu },
+            new() { Title = "夸克", Icon = AppIcons.QuarkNetdisk, Page = Quark },
             new() { Title = "下载", Icon = AppIcons.ArrowDownload, IconFilled = AppIcons.ArrowDownloadFilled, Page = Downloads },
             new() { Title = "设置", Icon = AppIcons.Settings, IconFilled = AppIcons.SettingsFilled, Page = Settings },
         };

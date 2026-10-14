@@ -10,7 +10,7 @@
         Title="盘多录 Pandre"
         Width="1100" Height="700"
         MinWidth="900" MinHeight="600"
-        Icon="/Assets/avalonia-logo.ico"
+        Icon="/Assets/pandre.ico"
         TransparencyLevelHint="Mica, AcrylicBlur"
         Background="Transparent"
         ExtendClientAreaToDecorationsHint="True"
@@ -23,9 +23,10 @@
       <Grid RowDefinitions="Auto,*,Auto">
         <!-- 顶部 Logo：中心落在「窗口顶端 → 首条导航项顶端」的中点，导航项位置保持不变 -->
         <Border Grid.Row="0" Margin="0,14,0,4">
-          <PathIcon Data="{x:Static local:AppIcons.CloudSyncFilled}"
-                    Width="24" Height="24" Foreground="{DynamicResource AccentBrush}"
-                    HorizontalAlignment="Center"/>
+          <Viewbox Width="26" Height="26" HorizontalAlignment="Center">
+            <Path Data="{x:Static local:AppIcons.PandreMark}"
+                  Fill="{DynamicResource AccentBrush}"/>
+          </Viewbox>
         </Border>
         <!-- 导航（共享指示条悬浮在上，位置由代码后置测量实际项坐标） -->
         <Grid Grid.Row="1" x:Name="NavArea" Margin="0,8,0,0">
@@ -154,6 +155,44 @@
                     IsVisible="{Binding DialogHasConfirm}"/>
           </StackPanel>
         </StackPanel>
+      </Border>
+    </Grid>
+
+    <!-- 功能开关伪弹窗：独立一页的开关清单（返回箭头 + 复选行） -->
+    <Grid x:Name="FeatureOverlay" Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2"
+          Background="{DynamicResource ScrimBrush}"
+          IsVisible="{Binding IsFeaturePanelOpen}"
+          PointerPressed="OnFeatureOverlayPressed">
+      <Border Classes="dialog" Width="420" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center"
+              Padding="20" DataContext="{Binding FeaturePanel}" x:DataType="vm:FeaturePanelViewModel">
+        <Grid RowDefinitions="Auto,*,Auto">
+          <Grid Grid.Row="0" ColumnDefinitions="Auto,*">
+            <Button Grid.Column="0" Classes="icon-btn" Click="OnCloseFeaturePanelClick" ToolTip.Tip="返回">
+              <PathIcon Data="{x:Static local:AppIcons.ArrowLeft}" Width="16" Height="16"/>
+            </Button>
+            <TextBlock Grid.Column="1" Classes="card-title" Margin="9,0,0,0" VerticalAlignment="Center"
+                       Text="界面功能开关"/>
+          </Grid>
+
+          <ScrollViewer Grid.Row="1" Margin="0,14,0,0">
+            <ItemsControl ItemsSource="{Binding Toggles}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:FeatureToggleViewModel">
+                  <CheckBox IsChecked="{Binding IsOn}" Margin="0,4" HorizontalContentAlignment="Left">
+                    <StackPanel Margin="8,0,0,0">
+                      <TextBlock Text="{Binding Title}"/>
+                      <TextBlock Classes="tertiary" FontSize="11" TextWrapping="Wrap"
+                                 Text="{Binding Description}"/>
+                    </StackPanel>
+                  </CheckBox>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+
+          <TextBlock Grid.Row="2" Classes="secondary" Margin="0,14,0,0" TextWrapping="Wrap"
+                     Text="改动立即生效并保存。开关对百度网盘与夸克网盘同时起作用。"/>
+        </Grid>
       </Border>
     </Grid>
 

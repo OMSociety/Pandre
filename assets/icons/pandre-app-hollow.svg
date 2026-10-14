@@ -1,0 +1,8 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Pandre 应用标识 · 镂空版：水晶只描边不填充，用于设置页「关于」卡（深浅色通用）
+       线宽按下述 20 逻辑 px 显示尺寸与相邻 Fluent 图标（Person，24 格 1.5 单位描边）配平：
+       PathIcon 把内容包围盒 210x190 单位映射到 20 逻辑 px，125% DPI 下 25 设备 px → 0.119 px/单位，
+       故弧 17 单位 = 2.00px、菱形 13 单位 = 2.14px，与 Person 的 2px 一致。 -->
+  <path d="M36 118Q128 8 220 118" stroke="#FFFFFF" stroke-width="17" stroke-linecap="round"/>
+  <polygon points="128,92 166,148.24 128,240 90,148.24" stroke="#FFFFFF" stroke-width="13" stroke-linejoin="round"/>
+</svg>

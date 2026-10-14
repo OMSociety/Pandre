@@ -25,4 +25,19 @@ public partial class SettingsView : UserControl
         var path = folders.FirstOrDefault()?.TryGetLocalPath();
         if (!string.IsNullOrWhiteSpace(path)) vm.DownloadDir = path;
     }
+
+    /// <summary>用系统默认浏览器打开外部链接（按钮 Tag 决定目标：repo=仓库，author=开发者主页）。</summary>
+    private async void OnOpenLinkClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { Tag: string target }) return;
+        var url = target switch
+        {
+            "repo" => Services.AppServices.RepositoryUrl,
+            "author" => Services.AppServices.AuthorUrl,
+            _ => null,
+        };
+        if (url is null) return;
+        if (TopLevel.GetTopLevel(this)?.Launcher is not { } launcher) return;
+        await launcher.LaunchUriAsync(new System.Uri(url));
+    }
 }

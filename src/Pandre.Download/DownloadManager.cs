@@ -33,6 +33,7 @@ public sealed class DownloadManager : IDisposable
     private readonly List<DownloadTask> _tasks = new();
     private readonly object _gate = new();
     private CancellationTokenSource? _pollCts;
+    private int _connections = 16;
 
     public event Action<DownloadTask>? TaskUpdated;
 
@@ -41,7 +42,8 @@ public sealed class DownloadManager : IDisposable
     public void Start(string? aria2ExePath = null, int connections = 16, int maxConcurrent = 5)
     {
         if (_pollCts != null) return;   // 幂等：重复调用不再重复起 aria2/轮询
-        _engine.Start(aria2ExePath, connections, maxConcurrent);
+        _connections = Math.Clamp(connections, 1, 64);
+        _engine.Start(aria2ExePath, _connections, maxConcurrent);
         _pollCts = new CancellationTokenSource();
         _ = Task.Run(() => PollLoopAsync(_pollCts.Token));
     }
@@ -55,8 +57,11 @@ public sealed class DownloadManager : IDisposable
             ["out"] = link.File.Name,
             ["dir"] = saveDir,
             ["header"] = link.Headers.Select(kv => $"{kv.Key}: {kv.Value}").ToArray(),
-            ["max-connection-per-server"] = "16",
-            ["split"] = "16",
+            // 必须跟引擎级同源：aria2 的逐任务选项会覆盖全局值，写死 16 会让设置页的连接数失效
+            ["max-connection-per-server"] = _connections.ToString(),
+            ["split"] = _connections.ToString(),
+            // 默认 20M 会让中等体积文件实际拿不到设定的连接数（file/min-split-size 才是真实并发）
+            ["min-split-size"] = "4194304",
         };
         var gid = (await _engine.CallAsync("aria2.addUri", new[] { link.Url }, options)).GetString()!;
         var task = new DownloadTask

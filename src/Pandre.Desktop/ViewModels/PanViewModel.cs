@@ -90,7 +90,23 @@ public partial class PanViewModel : ViewModelBase
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(HasSingleSelection));
         };
+        // 功能开关在设置页改动后，本页工具栏可见性要跟着变
+        AppServices.FeatureFlagsChanged += OnFeatureFlagsChanged;
     }
+
+    private void OnFeatureFlagsChanged()
+    {
+        OnPropertyChanged(nameof(ShowSaveShareButton));
+        OnPropertyChanged(nameof(ShowOfflineDownloadButton));
+        OnPropertyChanged(nameof(ShowShareManageButton));
+    }
+
+    /// <summary>「转存」按钮可见性（全局开关）。</summary>
+    public bool ShowSaveShareButton => AppServices.ShowSaveShare;
+    /// <summary>「离线下载」按钮可见性（全局开关 + 仅百度支持）。</summary>
+    public bool ShowOfflineDownloadButton => AppServices.ShowOfflineDownload && IsBaidu;
+    /// <summary>「分享管理」按钮可见性（全局开关）。</summary>
+    public bool ShowShareManageButton => AppServices.ShowShareManage;
 
     public string Title => _provider == PanProvider.Baidu ? "百度网盘" : "夸克网盘";
     /// <summary>离线下载仅百度支持。</summary>
@@ -446,7 +462,8 @@ public partial class PanViewModel : ViewModelBase
 
     [RelayCommand]
     private void SaveShare() => OpenDialog(PanDialogKind.TwoInput, "转存分享链接",
-        wm1: "夸克分享链接（https://pan.quark.cn/s/…）", wm2: "提取码（链接含 pwd 可留空）",
+        wm1: "夸克链接 / 百度链接（pan.baidu.com/s/…）",
+        wm2: "提取码（链接含 pwd 可留空）",
         action: async (url, pwd) =>
         {
             if (string.IsNullOrWhiteSpace(url)) return;
@@ -454,9 +471,9 @@ public partial class PanViewModel : ViewModelBase
             var code = pwd.Trim();
             if (code.Length == 0 && link.Contains("?pwd="))
                 code = link.Split("?pwd=")[1].Split('&')[0];
-            var r = await Client.SaveShareAsync(link, code.Length == 0 ? null : code, _dirStack[^1]);
+            var res = await Client.SaveShareAsync(link, code.Length == 0 ? null : code, _dirStack[^1]);
             await LoadCurrentAsync();
-            StatusMessage = $"已转存 {r.SavedCount} 项 → {r.SavedToDirName}";
+            StatusMessage = $"已转存 {res.SavedCount} 项 → {res.SavedToDirName}";
         });
 
     [RelayCommand]

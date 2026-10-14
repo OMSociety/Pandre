@@ -74,6 +74,19 @@ public partial class MainWindow : Window
         if (DataContext is ViewModels.MainViewModel vm) vm.IsLoginPanelOpen = false;
     }
 
+    /// <summary>功能开关弹窗：点遮罩空白关闭。</summary>
+    private void OnFeatureOverlayPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (ReferenceEquals(e.Source, sender) && DataContext is ViewModels.MainViewModel vm)
+            vm.IsFeaturePanelOpen = false;
+    }
+
+    /// <summary>功能开关弹窗左上角返回箭头。</summary>
+    private void OnCloseFeaturePanelClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is ViewModels.MainViewModel vm) vm.IsFeaturePanelOpen = false;
+    }
+
     /// <summary>网盘弹窗：点遮罩空白关闭（遮罩的 DataContext 是 MainViewModel，弹窗卡片才是 PanViewModel）。</summary>
     private void OnPanDialogScrimPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -109,11 +122,17 @@ public partial class MainWindow : Window
         await clipboard.SetDataAsync(transfer);
     }
 
-    /// <summary>Esc 收起弹窗（登录弹窗或网盘操作弹窗）。</summary>
+    /// <summary>Esc 收起弹窗（登录弹窗 / 功能开关 / 网盘操作弹窗）。</summary>
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.Key == Key.Escape && DataContext is ViewModels.MainViewModel vm)
         {
+            if (vm.IsFeaturePanelOpen)
+            {
+                vm.IsFeaturePanelOpen = false;
+                e.Handled = true;
+                return;
+            }
             if (vm.IsLoginPanelOpen)
             {
                 vm.IsLoginPanelOpen = false;

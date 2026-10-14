@@ -1,7 +1,7 @@
 # AGENTS.md — Pandre Agent 宪法
 
 适用范围：本仓库全部目录；子目录另有 AGENTS.md 时，以更接近改动点的那份为准。
-最后更新：2026-10-14
+最后更新：2026-10-15
 
 ## 项目概览
 
@@ -35,7 +35,7 @@ Pandre.Desktop (Avalonia MVVM) ──> Pandre.Download (aria2 队列)
 ```
 
 - 允许：Desktop 引用 Core 与 Download；Download 引用 Core 的 IPanClient/Models。
-- 禁止：Core 引用 Avalonia 或任何 UI 库。原因：Core 是纯协议层，P2 的上传/转存/秒传都落在这里，必须保持可单测、可复用。
+- 禁止：Core 引用 Avalonia 或任何 UI 库。原因：Core 是纯协议层，上传/转存/离线下载都落在这里，必须保持可单测、可复用。
 - 禁止：Download 引用 BaiduPanClient / QuarkPanClient 具体类。原因：队列对两盘同构，只认 IPanClient，绑死具体类会破坏双盘对称。
 
 ## 修改契约
@@ -45,6 +45,8 @@ Pandre.Desktop (Avalonia MVVM) ──> Pandre.Download (aria2 队列)
 - 改凭据存储（src/Pandre.Core/Credentials.cs）：必须保持 DPAPI 加密落盘；日志与异常消息禁止输出 Cookie 值。原因：Cookie 即账号等价物，明文落盘或进日志等于泄露账号。
 - 改下载链路（src/Pandre.Download/）：aria2 JSON-RPC 全链路必须 `ConfigureAwait(false)`；完成后必须实测一次真实下载入队（见「已知风险区」）。
 - 改启动流程（App.axaml.cs / MainViewModel.InitAsync / AppServices.InitAsync）：改后必须实测一次真实下载入队。原因：登录页重构曾把 AppServices.InitAsync 变成死代码，下载引擎从未启动而 UI 看似正常（提交 6edde4a）。
+- 改图标或品牌图形：设计稿在 `assets/icons/`（`pandre-app.svg` 是 256 格坐标的应用标识，两个网盘图标是 24 格坐标），代码常量在 `src/Pandre.Desktop/Icons.Brand.cs`，窗口图标是 `src/Pandre.Desktop/Assets/pandre.ico`。三者是同一套图形的三种形态，改一处必须同步另两处，规格与底图约束见 docs/开发文档.md §7。原因：应用标识带 256 格坐标只能靠 Viewbox 缩放，品牌图标要与 `Icons.cs` 的 Fluent 图标混排，`.ico` 的帧格式混排是 Windows 取图的硬要求，各自漏改都会静默退化。
+- 改主题色资源（App.axaml 的 `AccentColor` / `AccentBrush` / `NavSelectedBrush` / `OnAccentBrush`）：这四键在运行时由 `src/Pandre.Desktop/Services/AccentService.cs` 按 Windows 系统强调色覆盖，App.axaml 里的字面色只是读不到系统色时的回退；新增控件绑 `{DynamicResource AccentBrush}`，压在强调色实底上的前景用 `OnAccentBrush`，不要写死颜色。原因：强调色可变之后写死的前景色会失去对比度；且顶层资源键会遮蔽主题字典键，写到顶层就丢掉深浅两套色。
 - 升级 Avalonia 版本：先对照新版 Fluent 主题源码核对 App.axaml 里覆盖的资源键（ComboBox*、Button*、Card* 系列均为内部键，绑定 12.1.4），键名漂移会静默失效。
 
 ## 禁止操作

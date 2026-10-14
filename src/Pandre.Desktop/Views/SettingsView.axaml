@@ -50,6 +50,25 @@
         </StackPanel>
       </Border>
 
+      <!-- 功能开关分组 -->
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="card-title" Text="功能开关" Margin="0,0,0,8"/>
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.Settings}"
+                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
+                      Foreground="{StaticResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="界面功能"/>
+              <TextBlock Classes="secondary" Text="选择哪些功能出现在界面中"/>
+            </StackPanel>
+            <Button Grid.Column="2" Content="编辑…" VerticalAlignment="Center"
+                    ToolTip.Tip="打开功能开关面板"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenFeaturePanelCommand}"/>
+          </Grid>
+        </StackPanel>
+      </Border>
+
       <!-- 下载分组 -->
       <Border Classes="card">
         <StackPanel Spacing="4">
@@ -97,7 +116,41 @@
       <Border Classes="card">
         <StackPanel Spacing="4">
           <TextBlock Classes="card-title" Text="关于" Margin="0,0,0,8"/>
-          <TextBlock Classes="secondary" Text="盘多录 Pandre · GPL-3.0 · 聚合百度网盘与夸克网盘" TextWrapping="Wrap"/>
+
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,6">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.PandreMarkHollow}"
+                      Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,14,0"
+                      Foreground="{StaticResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+              <TextBlock Text="盘多录 Pandre"/>
+              <TextBlock Classes="secondary" FontSize="11" Margin="0,2,0,0"
+                         Text="GPL-3.0 · 聚合百度网盘与夸克网盘"/>
+            </StackPanel>
+            <Button Grid.Column="2" VerticalAlignment="Center" Tag="repo" Click="OnOpenLinkClick"
+                    ToolTip.Tip="在浏览器中打开 GitHub 仓库">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{x:Static local:AppIcons.OpenInNew}" Width="14" Height="14"/>
+                <TextBlock Text="GitHub 仓库" FontSize="12"/>
+              </StackPanel>
+            </Button>
+          </Grid>
+
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,6">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.Person}"
+                      Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,14,0"
+                      Foreground="{StaticResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+              <TextBlock Text="OMSociety"/>
+              <TextBlock Classes="secondary" FontSize="11" Margin="0,2,0,0" Text="开发者"/>
+            </StackPanel>
+            <Button Grid.Column="2" VerticalAlignment="Center" Tag="author" Click="OnOpenLinkClick"
+                    ToolTip.Tip="在浏览器中打开开发者主页">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{x:Static local:AppIcons.OpenInNew}" Width="14" Height="14"/>
+                <TextBlock Text="开发者主页" FontSize="12"/>
+              </StackPanel>
+            </Button>
+          </Grid>
         </StackPanel>
       </Border>
 

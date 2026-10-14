@@ -87,7 +87,13 @@ public partial class DownloadsViewModel : ViewModelBase
     public DownloadsViewModel()
     {
         AppServices.Downloads.TaskUpdated += OnTaskUpdated;
+        AppServices.FeatureFlagsChanged += OnFeatureFlagsChanged;
     }
+
+    private void OnFeatureFlagsChanged() => OnPropertyChanged(nameof(ShowOfflineSection));
+
+    /// <summary>下载页的「云端离线下载」整块可见性，跟随设置页的功能开关。</summary>
+    public bool ShowOfflineSection => AppServices.ShowOfflineDownload;
 
     public ObservableCollection<DownloadRowViewModel> Rows { get; } = new();
     /// <summary>云端离线下载任务（百度）。</summary>
