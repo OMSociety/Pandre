@@ -78,10 +78,22 @@ public partial class MainViewModel : ViewModelBase
         Login.Quark.SessionChanged += OnSessionChanged;
         Login.Baidu.LoginSucceeded += OnLoginSucceeded;
         Login.Quark.LoginSucceeded += OnLoginSucceeded;
+        // 弹窗可见性要跟着两侧 IsDialogOpen 变化通知
+        Baidu.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PanViewModel.IsDialogOpen)) OnPropertyChanged(nameof(IsPanDialogOpen));
+        };
+        Quark.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PanViewModel.IsDialogOpen)) OnPropertyChanged(nameof(IsPanDialogOpen));
+        };
     }
 
     /// <summary>当前页若是网盘页则返回其 VM（网盘弹窗遮罩要挂窗口级盖住侧栏），否则 null。</summary>
     public PanViewModel? CurrentPan => CurrentPage as PanViewModel;
+
+    /// <summary>网盘弹窗可见性（null 安全，永远能算出真值——弹窗 Grid 的 IsVisible 直接绑它，别绑 CurrentPan.IsDialogOpen：后者在 CurrentPan=null 时是 UnsetValue，会让 IsVisible 回默认值 true）。</summary>
+    public bool IsPanDialogOpen => CurrentPan is { IsDialogOpen: true };
 
     partial void OnCurrentPageChanged(ViewModelBase? value) => OnPropertyChanged(nameof(CurrentPan));
 

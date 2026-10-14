@@ -44,16 +44,22 @@
           <TextBlock Text="离线下载" VerticalAlignment="Center"/>
         </StackPanel>
       </Button>
-      <Button Margin="0,0,8,0" Command="{Binding RenameSelectedCommand}" IsEnabled="{Binding HasSingleSelection}" ToolTip.Tip="重命名选中项">
+      <Button Margin="0,0,8,0" Command="{Binding ShareManageCommand}" ToolTip.Tip="管理我的分享（列表/复制/取消）">
         <StackPanel Orientation="Horizontal" Spacing="6">
-          <PathIcon Data="{x:Static local:AppIcons.Edit}" Width="15" Height="15" VerticalAlignment="Center"/>
-          <TextBlock Text="重命名" VerticalAlignment="Center"/>
+          <PathIcon Data="{x:Static local:AppIcons.Share}" Width="15" Height="15" VerticalAlignment="Center"/>
+          <TextBlock Text="分享管理" VerticalAlignment="Center"/>
         </StackPanel>
       </Button>
       <Button Margin="0,0,8,0" Command="{Binding ShareSelectedCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="为选中项创建永久分享链接">
         <StackPanel Orientation="Horizontal" Spacing="6">
           <PathIcon Data="{x:Static local:AppIcons.Share}" Width="15" Height="15" VerticalAlignment="Center"/>
           <TextBlock Text="分享" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Button>
+      <Button Margin="0,0,8,0" Command="{Binding RenameSelectedCommand}" IsEnabled="{Binding HasSingleSelection}" ToolTip.Tip="重命名选中项">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <PathIcon Data="{x:Static local:AppIcons.Edit}" Width="15" Height="15" VerticalAlignment="Center"/>
+          <TextBlock Text="重命名" VerticalAlignment="Center"/>
         </StackPanel>
       </Button>
       <Button Command="{Binding DeleteSelectedCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="删除选中项（进回收站）">

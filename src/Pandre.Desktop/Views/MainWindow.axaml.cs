@@ -74,11 +74,11 @@ public partial class MainWindow : Window
         if (DataContext is ViewModels.MainViewModel vm) vm.IsLoginPanelOpen = false;
     }
 
-    /// <summary>网盘弹窗：点遮罩空白关闭（遮罩 Border 的 DataContext 是 CurrentPan）。</summary>
+    /// <summary>网盘弹窗：点遮罩空白关闭（遮罩的 DataContext 是 MainViewModel，弹窗卡片才是 PanViewModel）。</summary>
     private void OnPanDialogScrimPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (ReferenceEquals(e.Source, sender) && (sender as Control)?.DataContext is ViewModels.PanViewModel vm)
-            vm.DialogCancelCommand.Execute(null);
+        if (ReferenceEquals(e.Source, sender) && DataContext is ViewModels.MainViewModel vm && vm.CurrentPan != null)
+            vm.CurrentPan.DialogCancelCommand.Execute(null);
     }
 
     /// <summary>复制网盘弹窗正文（分享链接）到剪贴板。</summary>
@@ -94,6 +94,19 @@ public partial class MainWindow : Window
             await clipboard.SetDataAsync(transfer);
             vm.StatusMessage = "已复制到剪贴板";
         }
+    }
+
+    /// <summary>分享管理行内「复制」：复制该条链接（有提取码则带上 ?pwd=）。</summary>
+    private async void OnCopyShareLinkClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not ViewModels.ShareRowViewModel row) return;
+        var clipboard = Clipboard;
+        if (clipboard == null || row.Share.ShareUrl.Length == 0) return;
+        var url = row.Share.Passcode != null && !row.Share.ShareUrl.Contains("?pwd=")
+            ? $"{row.Share.ShareUrl}?pwd={row.Share.Passcode}" : row.Share.ShareUrl;
+        var transfer = new DataTransfer();
+        transfer.Add(DataTransferItem.CreateText(url));
+        await clipboard.SetDataAsync(transfer);
     }
 
     /// <summary>Esc 收起弹窗（登录弹窗或网盘操作弹窗）。</summary>

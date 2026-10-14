@@ -37,13 +37,38 @@ public partial class FileRowViewModel : ViewModelBase
         catch { /* 缩略图失败不影响列表 */ }
     }
 
-    private static string FmtSize(long b) => b switch
-    {
+    private static string FmtSize(long b) => b switch    {
         >= 1L << 30 => $"{b / 1073741824.0:F1} GB",
         >= 1L << 20 => $"{b / 1048576.0:F1} MB",
         >= 1L << 10 => $"{b / 1024.0:F1} KB",
         _ => $"{b} B",
     };
+}
+
+/// <summary>分享管理弹窗里的一行（一次分享记录）。</summary>
+public partial class ShareRowViewModel : ViewModelBase
+{
+    private readonly Func<ShareRowViewModel, Task> _cancel;
+
+    public ShareRowViewModel(PanShare share, Func<ShareRowViewModel, Task> cancel)
+    {
+        Share = share;
+        _cancel = cancel;
+    }
+
+    public PanShare Share { get; }
+    public string Title => Share.Title;
+    public string UrlText => Share.ShareUrl;
+    public string TimeText => Share.CreatedAt == DateTimeOffset.MinValue
+        ? "—" : Share.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm");
+    public string CancelText => IsConfirmingCancel ? "确认取消？" : "取消";
+
+    /// <summary>两步防误点：第一次点「取消」变「确认取消？」，第二次才真正取消。</summary>
+    [ObservableProperty] private bool _isConfirmingCancel;
+    partial void OnIsConfirmingCancelChanged(bool value) => OnPropertyChanged(nameof(CancelText));
+
+    [RelayCommand]
+    private async Task CancelShare() => await _cancel(this);
 }
 
 /// <summary>单个网盘的浏览面板：导航 + 搜索 + 选择下载 + P2 管理/上传/分享/转存/离线。</summary>
@@ -232,8 +257,8 @@ public partial class PanViewModel : ViewModelBase
         finally { IsUploading = false; UploadProgressText = ""; }
     }
 
-    // ---- 伪弹窗（输入/确认/展示 三态复用） ----
-    public enum PanDialogKind { Input, TwoInput, Confirm, Text }
+    // ---- 伪弹窗（输入/确认/展示/分享列表 四态复用） ----
+    public enum PanDialogKind { Input, TwoInput, Confirm, Text, Shares }
 
     [ObservableProperty] private bool _isDialogOpen;
     [ObservableProperty] private PanDialogKind _dialogKind;
@@ -243,12 +268,17 @@ public partial class PanViewModel : ViewModelBase
     [ObservableProperty] private string _dialogText = "";
     [ObservableProperty] private string _dialogInputWatermark = "";
     [ObservableProperty] private string _dialogInput2Watermark = "";
+    /// <summary>分享管理弹窗的行集合。</summary>
+    public ObservableCollection<ShareRowViewModel> DialogShares { get; } = new();
     public bool DialogHasInput => DialogKind is PanDialogKind.Input or PanDialogKind.TwoInput;
     public bool DialogHasInput2 => DialogKind is PanDialogKind.TwoInput;
     public bool DialogHasText => DialogKind is PanDialogKind.Text;
     public bool DialogIsConfirm => DialogKind is PanDialogKind.Confirm;
+    public bool DialogIsShares => DialogKind is PanDialogKind.Shares;
     /// <summary>Text 与 Confirm 两种弹窗都展示正文。</summary>
     public bool DialogShowText => DialogKind is PanDialogKind.Text or PanDialogKind.Confirm;
+    /// <summary>「确定」按钮只在有提交动作的弹窗显示（列表型没有）。</summary>
+    public bool DialogHasConfirm => DialogKind is not PanDialogKind.Shares;
 
     private Func<string, string, Task>? _dialogAction;
 
@@ -258,6 +288,8 @@ public partial class PanViewModel : ViewModelBase
         OnPropertyChanged(nameof(DialogHasInput2));
         OnPropertyChanged(nameof(DialogHasText));
         OnPropertyChanged(nameof(DialogIsConfirm));
+        OnPropertyChanged(nameof(DialogIsShares));
+        OnPropertyChanged(nameof(DialogHasConfirm));
         OnPropertyChanged(nameof(DialogShowText));
     }
 
@@ -371,8 +403,40 @@ public partial class PanViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task ShareManageAsync()
+    {
+        if (!IsLoggedIn) { StatusMessage = "未登录"; return; }
+        IsLoading = true; StatusMessage = "正在获取分享列表…";
+        try
+        {
+            var shares = await Client.ListSharesAsync();
+            DialogShares.Clear();
+            foreach (var s in shares) DialogShares.Add(new ShareRowViewModel(s, row => CancelShareAsync(row)));
+            OpenDialog(PanDialogKind.Shares, "我的分享");
+            StatusMessage = $"共 {shares.Count} 条分享";
+        }
+        catch (PanException ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { StatusMessage = $"取分享列表异常：{ex.Message}"; }
+        finally { IsLoading = false; }
+    }
+
+    /// <summary>两步取消：第一次只把按钮变「确认取消？」，第二次真正调接口。由 ShareRowViewModel 回掉触发。</summary>
+    private async Task CancelShareAsync(ShareRowViewModel row)
+    {
+        if (!row.IsConfirmingCancel) { row.IsConfirmingCancel = true; return; }
+        try
+        {
+            await Client.DeleteSharesAsync([row.Share.ShareId]);
+            DialogShares.Remove(row);
+            StatusMessage = $"已取消分享「{row.Share.Title}」";
+        }
+        catch (PanException ex) { StatusMessage = ex.Message; row.IsConfirmingCancel = false; }
+        catch (Exception ex) { StatusMessage = $"取消分享异常：{ex.Message}"; row.IsConfirmingCancel = false; }
+    }
+
+    [RelayCommand]
     private void SaveShare() => OpenDialog(PanDialogKind.TwoInput, "转存分享链接",
-        wm1: "夸克/百度分享链接（https://…/s/…）", wm2: "提取码（链接含 pwd 可留空）",
+        wm1: "夸克分享链接（https://pan.quark.cn/s/…）", wm2: "提取码（链接含 pwd 可留空）",
         action: async (url, pwd) =>
         {
             if (string.IsNullOrWhiteSpace(url)) return;

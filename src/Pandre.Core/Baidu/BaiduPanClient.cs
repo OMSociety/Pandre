@@ -466,6 +466,55 @@ public sealed class BaiduPanClient : IPanClient
             PanProvider.Baidu);
     }
 
+    /// <summary>我的分享列表（share/record，时间倒序；不含提取码——百度要查得逐个调 share/surlinfo，不做）。</summary>
+    public async Task<IReadOnlyList<PanShare>> ListSharesAsync(CancellationToken ct = default)
+    {
+        var root = JsonDocument.Parse(await Http.GetStringAsync(
+            "https://pan.baidu.com/share/record?page=1&desc=1&order=time", ct)).RootElement;
+        if (root.TryGetProperty("errno", out var en) && en.GetInt32() != 0)
+            throw new PanException($"百度取分享列表失败 errno={en.GetInt32()}", en.GetInt32());
+        var list = new List<PanShare>();
+        if (root.TryGetProperty("list", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var it in arr.EnumerateArray())
+            {
+                var title = it.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+                if (title.Length == 0 && it.TryGetProperty("typicalPath", out var tp) && tp.GetString() is { } path)
+                    title = path[(path.LastIndexOf('/') + 1)..];
+                var shortlink = it.TryGetProperty("shortlink", out var sl) ? sl.GetString() ?? "" : "";
+                // 实测 shortlink 本身可能是完整 URL（https://pan.baidu.com/s/1xxx），也可能是 1xxx 段
+                var shareUrl = shortlink.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? shortlink
+                    : shortlink.Length > 0 ? $"https://pan.baidu.com/s/{shortlink}" : "";
+                var expiredType = it.TryGetProperty("expiredType", out var et) ? et.GetInt32() : 0;
+                var expiredTime = it.TryGetProperty("expiredTime", out var ex) ? ex.GetInt64() : 0;
+                var ctime = it.TryGetProperty("ctime", out var c) ? c.GetInt64() : 0;
+                list.Add(new PanShare(
+                    it.TryGetProperty("shareId", out var sid) ? sid.GetInt64().ToString() : "0",
+                    shareUrl,
+                    title.Length > 0 ? title : "(未命名)",
+                    null, // 列表响应不含提取码
+                    it.TryGetProperty("fsIds", out var fs) ? fs.GetArrayLength() : 0,
+                    ctime > 0 ? DateTimeOffset.FromUnixTimeSeconds(ctime) : DateTimeOffset.MinValue,
+                    expiredType != 0 && expiredTime > 0 ? DateTimeOffset.FromUnixTimeSeconds(expiredTime) : null,
+                    PanProvider.Baidu));
+            }
+        }
+        return list;
+    }
+
+    /// <summary>取消分享（share/cancel，纯 Cookie 无 query，BaiduProbe 已实测 errno=0）。</summary>
+    public async Task DeleteSharesAsync(IReadOnlyList<string> shareIds, CancellationToken ct = default)
+    {
+        var body = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["shareid_list"] = "[" + string.Join(",", shareIds) + "]",
+        });
+        var resp = await Http.PostAsync("https://pan.baidu.com/share/cancel", body, ct);
+        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct)).RootElement;
+        if (root.TryGetProperty("errno", out var en) && en.GetInt32() != 0)
+            throw new PanException($"百度取消分享失败 errno={en.GetInt32()}", en.GetInt32());
+    }
+
     // ============ P2：离线下载（cloud_dl，参数走 query 无请求体） ============
     private const string CloudDlBase = "https://pan.baidu.com/rest/2.0/services/cloud_dl";
 

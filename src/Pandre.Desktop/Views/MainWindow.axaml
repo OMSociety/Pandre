@@ -106,12 +106,13 @@
           </TransitioningContentControl>
         </Grid>
 
-    <!-- 网盘操作伪弹窗（新建/重命名/删除确认/分享/转存/离线）：挂窗口级，遮罩盖住侧栏与标题栏 -->
+    <!-- 网盘操作伪弹窗（新建/重命名/删除确认/分享/转存/离线/分享管理）：挂窗口级，遮罩盖住侧栏与标题栏。
+         可见性绑 MainViewModel.IsPanDialogOpen（null 安全）；DataContext 下放到卡片层。 -->
     <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2" ZIndex="30"
-          DataContext="{Binding CurrentPan}" x:DataType="vm:PanViewModel"
-          IsVisible="{Binding IsDialogOpen}">
+          IsVisible="{Binding IsPanDialogOpen}">
       <Border Background="{DynamicResource ScrimBrush}" PointerPressed="OnPanDialogScrimPressed"/>
-      <Border Classes="dialog" Width="440" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="20">
+      <Border Classes="dialog" Width="440" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="20"
+              DataContext="{Binding CurrentPan}" x:DataType="vm:PanViewModel">
         <StackPanel Spacing="14">
           <TextBlock Text="{Binding DialogTitle}" FontSize="16" FontWeight="SemiBold"/>
           <TextBox Text="{Binding DialogInput}" PlaceholderText="{Binding DialogInputWatermark}"
@@ -120,10 +121,37 @@
                    IsVisible="{Binding DialogHasInput2}"/>
           <TextBlock Text="{Binding DialogText}" IsVisible="{Binding DialogShowText}"
                      TextWrapping="Wrap" Classes="secondary" MaxWidth="400"/>
+          <!-- 分享管理列表 -->
+          <ScrollViewer MaxHeight="320" IsVisible="{Binding DialogIsShares}">
+            <ItemsControl ItemsSource="{Binding DialogShares}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ShareRowViewModel">
+                  <Border Classes="row-card" Margin="0,3" Padding="10,8">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}"/>
+                        <TextBlock Text="{Binding UrlText}" Classes="secondary" FontSize="11"
+                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding UrlText}"/>
+                        <TextBlock Text="{Binding TimeText}" Classes="tertiary" FontSize="11"/>
+                      </StackPanel>
+                      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                                  VerticalAlignment="Center">
+                        <Button Content="复制" Click="OnCopyShareLinkClick" ToolTip.Tip="复制分享链接"/>
+                        <Button Content="{Binding CancelText}" Command="{Binding CancelShareCommand}"
+                                ToolTip.Tip="取消这条分享（点两次确认）"/>
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
             <Button Content="复制" IsVisible="{Binding DialogHasText}" Click="OnCopyPanDialogTextClick"/>
             <Button Content="取消" Command="{Binding DialogCancelCommand}"/>
-            <Button Classes="primary" Content="确定" Command="{Binding DialogConfirmCommand}"/>
+            <Button Classes="primary" Content="确定" Command="{Binding DialogConfirmCommand}"
+                    IsVisible="{Binding DialogHasConfirm}"/>
           </StackPanel>
         </StackPanel>
       </Border>
