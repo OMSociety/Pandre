@@ -68,6 +68,28 @@
                       ToolTip.Tip="选择下载目录"/>
             </Grid>
           </Grid>
+
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
+                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
+                      Foreground="{StaticResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="单任务连接数"/>
+              <TextBlock Classes="secondary" Text="每个文件拆成几段同时下载（1-64），重启后生效"/>
+            </StackPanel>
+            <TextBox Grid.Column="2" Text="{Binding Aria2Connections}" MinWidth="80" VerticalAlignment="Center"/>
+          </Grid>
+
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
+                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
+                      Foreground="{StaticResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="同时下载数"/>
+              <TextBlock Classes="secondary" Text="队列里同时进行的任务个数（1-20），重启后生效"/>
+            </StackPanel>
+            <TextBox Grid.Column="2" Text="{Binding Aria2MaxConcurrent}" MinWidth="80" VerticalAlignment="Center"/>
+          </Grid>
         </StackPanel>
       </Border>
 

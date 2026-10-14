@@ -43,11 +43,27 @@ public static class AppServices
         set { var s = LoadSettings(); s.DownloadDir = value; SaveSettings(s); }
     }
 
+    /// <summary>单任务连接数（aria2 --split / --max-connection-per-server），1-64，默认 16，重启 aria2 生效。</summary>
+    public static int Aria2Connections
+    {
+        get => LoadSettings().Aria2Connections is > 0 and <= 64 ? LoadSettings().Aria2Connections!.Value : 16;
+        set { var s = LoadSettings(); s.Aria2Connections = Math.Clamp(value, 1, 64); SaveSettings(s); }
+    }
+
+    /// <summary>全局同时下载数（aria2 --max-concurrent-downloads），1-20，默认 5，重启 aria2 生效。</summary>
+    public static int Aria2MaxConcurrent
+    {
+        get => LoadSettings().Aria2MaxConcurrent is > 0 and <= 20 ? LoadSettings().Aria2MaxConcurrent!.Value : 5;
+        set { var s = LoadSettings(); s.Aria2MaxConcurrent = Math.Clamp(value, 1, 20); SaveSettings(s); }
+    }
+
     private sealed class Settings
     {
         public string? Theme { get; set; }
         public string? Material { get; set; }
         public string? DownloadDir { get; set; }
+        public int? Aria2Connections { get; set; }
+        public int? Aria2MaxConcurrent { get; set; }
     }
 
     private static string SettingsPath => Path.Combine(
@@ -126,7 +142,7 @@ public static class AppServices
     /// <summary>启动 aria2 下载引擎（幂等）。aria2 缺失/启动失败不阻断登录恢复；下载时引擎会报具体原因。</summary>
     public static void StartDownloads()
     {
-        try { Downloads.Start(DefaultAria2Path()); }
+        try { Downloads.Start(DefaultAria2Path(), Aria2Connections, Aria2MaxConcurrent); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine("aria2 启动失败: " + ex.Message); }
     }
 

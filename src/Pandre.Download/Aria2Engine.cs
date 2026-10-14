@@ -27,7 +27,7 @@ public sealed class Aria2Engine : IDisposable
         throw new FileNotFoundException("找不到 aria2c.exe（约定位置: " + besideApp + "）");
     }
 
-    public void Start(string? exePath = null)
+    public void Start(string? exePath = null, int connections = 16, int maxConcurrent = 5)
     {
         if (_proc != null) return;
         var exe = ResolveExePath(exePath);
@@ -39,7 +39,8 @@ public sealed class Aria2Engine : IDisposable
         {
             StartInfo = new ProcessStartInfo(exe,
                 $"--enable-rpc --rpc-listen-all=false --rpc-listen-port={port} --rpc-secret={_secret} " +
-                "--max-connection-per-server=16 --split=16 --continue=true --max-tries=5 --retry-wait=2 " +
+                $"--max-connection-per-server={connections} --split={connections} --max-concurrent-downloads={maxConcurrent} " +
+                "--continue=true --max-tries=5 --retry-wait=2 " +
                 "--file-allocation=none --summary-interval=0 --show-console-readout=false")
             {
                 UseShellExecute = false,

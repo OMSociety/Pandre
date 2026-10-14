@@ -372,9 +372,10 @@ public partial class PanViewModel : ViewModelBase
         if (!IsLoggedIn) { StatusMessage = "未登录"; return; }
         var folders = files.Count(f => f.IsDirectory);
         var title = files[0].Name + (files.Length > 1 ? $" 等{files.Length}项" : "");
-        OpenDialog(PanDialogKind.Input, "创建分享",
+        OpenDialog(PanDialogKind.TwoInput, "创建分享",
             wm1: "提取码（4 位字母/数字，留空随机生成）",
-            action: async (pwd, _) =>
+            wm2: "有效期（留空/0=永久；1/7/30 天）",
+            action: async (pwd, expire) =>
             {
                 var code = pwd.Trim();
                 if (code.Length > 0)
@@ -386,14 +387,23 @@ public partial class PanViewModel : ViewModelBase
                     }
                     code = code.ToLowerInvariant();
                 }
+                var expireText = expire.Trim();
+                var expireDays = expireText.Length == 0 ? 0 :
+                    int.TryParse(expireText, out var d) ? d : -1;
+                if (expireDays is not (0 or 1 or 7 or 30))
+                {
+                    StatusMessage = "有效期只能是 0(永久)/1/7/30 天，已取消";
+                    return;
+                }
                 IsLoading = true; StatusMessage = "正在创建分享…";
                 try
                 {
                     var share = await Client.CreateShareAsync(
-                        new PanShareOptions(files, title, 0, code.Length == 0 ? null : code));
+                        new PanShareOptions(files, title, expireDays, code.Length == 0 ? null : code));
                     var url = share.Passcode != null && !share.ShareUrl.Contains("?pwd=")
                         ? $"{share.ShareUrl}?pwd={share.Passcode}" : share.ShareUrl;
-                    OpenDialog(PanDialogKind.Text, "分享链接（永久有效）", text: url);
+                    var period = expireDays == 0 ? "永久有效" : $"有效期 {expireDays} 天";
+                    OpenDialog(PanDialogKind.Text, $"分享链接（{period}）", text: url);
                     StatusMessage = "分享已创建";
                 }
                 catch (PanException ex) { StatusMessage = $"创建分享失败：{ex.Message}"; }

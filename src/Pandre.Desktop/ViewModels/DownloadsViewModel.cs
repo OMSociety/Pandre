@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Pandre.Core;
 using Pandre.Download;
 using Pandre.Desktop.Services;
 
@@ -46,7 +47,7 @@ public partial class DownloadRowViewModel : ViewModelBase
         CanResume = t.Status == DownloadStatus.Paused;
     }
 
-    private static string FmtSize(long b) => b switch
+    internal static string FmtSize(long b) => b switch
     {
         >= 1L << 30 => $"{b / 1073741824.0:F1} GB",
         >= 1L << 20 => $"{b / 1048576.0:F1} MB",
@@ -55,7 +56,32 @@ public partial class DownloadRowViewModel : ViewModelBase
     };
 }
 
-/// <summary>下载面板：刷新、暂停/继续、移除；目录设置。</summary>
+/// <summary>云端离线下载任务的一行（只读展示）。</summary>
+public sealed class OfflineTaskRowViewModel : ViewModelBase
+{
+    public OfflineTaskRowViewModel(PanOfflineTask task) { Task = task; }
+
+    public PanOfflineTask Task { get; }
+    public string Name => Task.Name;
+    public string SavePath => Task.SavePath;
+    public string SizeText => Task.SizeBytes > 0
+        ? $"{DownloadRowViewModel.FmtSize(Task.FinishedBytes)} / {DownloadRowViewModel.FmtSize(Task.SizeBytes)}" : "";
+    public string StatusText => Task.Status switch
+    {
+        0 => "完成",
+        1 => "下载中",
+        2 => "系统错误",
+        3 => "资源不存在",
+        4 => "下载超时",
+        5 => "失败",
+        6 => "空间不足",
+        7 => "已取消",
+        _ => $"未知({Task.Status})",
+    };
+    public bool IsDone => Task.Status == 0;
+}
+
+/// <summary>下载面板：刷新、暂停/继续、移除；目录设置；云端离线任务只读列表。</summary>
 public partial class DownloadsViewModel : ViewModelBase
 {
     public DownloadsViewModel()
@@ -64,9 +90,12 @@ public partial class DownloadsViewModel : ViewModelBase
     }
 
     public ObservableCollection<DownloadRowViewModel> Rows { get; } = new();
+    /// <summary>云端离线下载任务（百度）。</summary>
+    public ObservableCollection<OfflineTaskRowViewModel> OfflineRows { get; } = new();
 
     [ObservableProperty] private string _downloadDir = AppServices.DownloadDir;
     [ObservableProperty] private string _statusText = "";
+    [ObservableProperty] private bool _offlineLoaded;
 
     partial void OnDownloadDirChanged(string value) => AppServices.DownloadDir = value;
 
@@ -77,6 +106,23 @@ public partial class DownloadsViewModel : ViewModelBase
         // 简单整体重建（P1 规模足够）
         Rows.Clear();
         foreach (var t in tasks) Rows.Add(new DownloadRowViewModel(t));
+    }
+
+    /// <summary>拉取云端离线下载任务（目前只百度支持，探针实测 6/6）。</summary>
+    [RelayCommand]
+    private async System.Threading.Tasks.Task RefreshOfflineAsync()
+    {
+        StatusText = "正在获取云端任务…";
+        try
+        {
+            var tasks = await AppServices.Baidu.ListOfflineTasksAsync();
+            OfflineRows.Clear();
+            foreach (var t in tasks) OfflineRows.Add(new OfflineTaskRowViewModel(t));
+            OfflineLoaded = true;
+            StatusText = tasks.Count == 0 ? "云端暂无离线下载任务" : $"云端共 {tasks.Count} 个任务";
+        }
+        catch (PanException ex) { StatusText = $"获取云端任务失败：{ex.Message}"; }
+        catch (Exception ex) { StatusText = $"获取云端任务异常：{ex.Message}"; }
     }
 
     private void OnTaskUpdated(DownloadTask t)

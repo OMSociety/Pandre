@@ -38,10 +38,10 @@ public sealed class DownloadManager : IDisposable
 
     public IReadOnlyList<DownloadTask> Tasks { get { lock (_gate) return _tasks.ToArray(); } }
 
-    public void Start(string? aria2ExePath = null)
+    public void Start(string? aria2ExePath = null, int connections = 16, int maxConcurrent = 5)
     {
         if (_pollCts != null) return;   // 幂等：重复调用不再重复起 aria2/轮询
-        _engine.Start(aria2ExePath);
+        _engine.Start(aria2ExePath, connections, maxConcurrent);
         _pollCts = new CancellationTokenSource();
         _ = Task.Run(() => PollLoopAsync(_pollCts.Token));
     }

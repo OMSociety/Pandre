@@ -40,6 +40,8 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private ThemeOption? _selectedTheme;
     [ObservableProperty] private MaterialOption? _selectedMaterial;
     [ObservableProperty] private string _downloadDir = "";
+    [ObservableProperty] private string _aria2Connections = "16";
+    [ObservableProperty] private string _aria2MaxConcurrent = "5";
 
     public SettingsViewModel()
     {
@@ -49,6 +51,8 @@ public partial class SettingsViewModel : ViewModelBase
         var material = AppServices.Material;
         SelectedMaterial = MaterialOptions.Find(o => o.Key == material) ?? MaterialOptions[0];
         DownloadDir = AppServices.DownloadDir;
+        Aria2Connections = AppServices.Aria2Connections.ToString();
+        Aria2MaxConcurrent = AppServices.Aria2MaxConcurrent.ToString();
     }
 
     partial void OnSelectedThemeChanged(ThemeOption? value)
@@ -65,5 +69,17 @@ public partial class SettingsViewModel : ViewModelBase
     {
         if (!string.IsNullOrWhiteSpace(value) && value != AppServices.DownloadDir)
             AppServices.DownloadDir = value;
+    }
+
+    partial void OnAria2ConnectionsChanged(string value)
+    {
+        if (int.TryParse(value, out var n) && n != AppServices.Aria2Connections)
+            AppServices.Aria2Connections = n;
+    }
+
+    partial void OnAria2MaxConcurrentChanged(string value)
+    {
+        if (int.TryParse(value, out var n) && n != AppServices.Aria2MaxConcurrent)
+            AppServices.Aria2MaxConcurrent = n;
     }
 }
