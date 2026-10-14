@@ -106,6 +106,29 @@
           </TransitioningContentControl>
         </Grid>
 
+    <!-- 网盘操作伪弹窗（新建/重命名/删除确认/分享/转存/离线）：挂窗口级，遮罩盖住侧栏与标题栏 -->
+    <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2" ZIndex="30"
+          DataContext="{Binding CurrentPan}" x:DataType="vm:PanViewModel"
+          IsVisible="{Binding IsDialogOpen}">
+      <Border Background="{DynamicResource ScrimBrush}" PointerPressed="OnPanDialogScrimPressed"/>
+      <Border Classes="dialog" Width="440" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="20">
+        <StackPanel Spacing="14">
+          <TextBlock Text="{Binding DialogTitle}" FontSize="16" FontWeight="SemiBold"/>
+          <TextBox Text="{Binding DialogInput}" PlaceholderText="{Binding DialogInputWatermark}"
+                   IsVisible="{Binding DialogHasInput}"/>
+          <TextBox Text="{Binding DialogInput2}" PlaceholderText="{Binding DialogInput2Watermark}"
+                   IsVisible="{Binding DialogHasInput2}"/>
+          <TextBlock Text="{Binding DialogText}" IsVisible="{Binding DialogShowText}"
+                     TextWrapping="Wrap" Classes="secondary" MaxWidth="400"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="复制" IsVisible="{Binding DialogHasText}" Click="OnCopyPanDialogTextClick"/>
+            <Button Content="取消" Command="{Binding DialogCancelCommand}"/>
+            <Button Classes="primary" Content="确定" Command="{Binding DialogConfirmCommand}"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
+
     <!-- 登录伪弹窗：遮罩 + 抬升卡片（点遮罩空白处或 Esc 关闭） -->
     <Grid x:Name="LoginOverlay" Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2"
           Background="{DynamicResource ScrimBrush}"

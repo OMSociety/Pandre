@@ -80,9 +80,17 @@ public partial class MainViewModel : ViewModelBase
         Login.Quark.LoginSucceeded += OnLoginSucceeded;
     }
 
+    /// <summary>当前页若是网盘页则返回其 VM（网盘弹窗遮罩要挂窗口级盖住侧栏），否则 null。</summary>
+    public PanViewModel? CurrentPan => CurrentPage as PanViewModel;
+
+    partial void OnCurrentPageChanged(ViewModelBase? value) => OnPropertyChanged(nameof(CurrentPan));
+
     partial void OnSelectedNavChanged(NavItem? value)
     {
         if (value == null) return;
+        // 切页时收掉另一页可能开着的弹窗
+        Baidu.DialogCancelCommand.Execute(null);
+        Quark.DialogCancelCommand.Execute(null);
         var oldIdx = _selectedNav != null ? NavItems.IndexOf(_selectedNav) : -1;
         var newIdx = NavItems.IndexOf(value);
         IsNavBack = newIdx < oldIdx;

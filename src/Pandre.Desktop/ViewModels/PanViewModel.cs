@@ -46,7 +46,7 @@ public partial class FileRowViewModel : ViewModelBase
     };
 }
 
-/// <summary>单个网盘的浏览面板：导航 + 搜索 + 选择下载。</summary>
+/// <summary>单个网盘的浏览面板：导航 + 搜索 + 选择下载 + P2 管理/上传/分享/转存/离线。</summary>
 public partial class PanViewModel : ViewModelBase
 {
     private readonly PanProvider _provider;
@@ -60,9 +60,18 @@ public partial class PanViewModel : ViewModelBase
     {
         _provider = provider;
         _downloads = downloads;
+        SelectedFiles.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasSelection));
+            OnPropertyChanged(nameof(HasSingleSelection));
+        };
     }
 
     public string Title => _provider == PanProvider.Baidu ? "百度网盘" : "夸克网盘";
+    /// <summary>离线下载仅百度支持。</summary>
+    public bool IsBaidu => _provider == PanProvider.Baidu;
+    public bool HasSelection => SelectedFiles.Count > 0;
+    public bool HasSingleSelection => SelectedFiles.Count == 1;
 
     public ObservableCollection<FileRowViewModel> Files { get; } = new();
     public ObservableCollection<FileRowViewModel> SelectedFiles { get; } = new();
@@ -190,4 +199,199 @@ public partial class PanViewModel : ViewModelBase
         foreach (var f in items.OrderByDescending(f => f.IsDirectory).ThenBy(f => f.Name))
             Files.Add(new FileRowViewModel(f));
     }
+
+    // ============ P2：上传 / 管理 / 分享 / 转存 / 离线 ============
+
+    [ObservableProperty] private bool _isUploading;
+    [ObservableProperty] private string _uploadProgressText = "";
+
+    /// <summary>上传若干本地文件到当前目录（由视图文件选择器驱动，逐个上传并刷新）。</summary>
+    public async Task UploadFilesAsync(IReadOnlyList<string> paths)
+    {
+        if (!IsLoggedIn) { StatusMessage = "未登录"; return; }
+        if (paths.Count == 0) return;
+        IsUploading = true;
+        try
+        {
+            for (var i = 0; i < paths.Count; i++)
+            {
+                var name = System.IO.Path.GetFileName(paths[i]);
+                var progress = new Progress<PanUploadProgress>(p =>
+                    UploadProgressText = $"[{i + 1}/{paths.Count}] {name}：{p.Phase} " +
+                        (p.TotalBytes > 0 ? $"{p.DoneBytes * 100 / Math.Max(p.TotalBytes, 1)}%" : ""));
+                var result = await Client.UploadAsync(paths[i], _dirStack[^1], PanConflictPolicy.Skip, progress);
+                UploadProgressText = result.Rapid
+                    ? $"[{i + 1}/{paths.Count}] {name}：秒传命中"
+                    : $"[{i + 1}/{paths.Count}] {name}：完成";
+            }
+            StatusMessage = $"上传完成：{paths.Count} 个文件";
+            await LoadCurrentAsync();
+        }
+        catch (PanException ex) { StatusMessage = $"上传失败：{ex.Message}"; }
+        catch (Exception ex) { StatusMessage = $"上传异常：{ex.Message}"; }
+        finally { IsUploading = false; UploadProgressText = ""; }
+    }
+
+    // ---- 伪弹窗（输入/确认/展示 三态复用） ----
+    public enum PanDialogKind { Input, TwoInput, Confirm, Text }
+
+    [ObservableProperty] private bool _isDialogOpen;
+    [ObservableProperty] private PanDialogKind _dialogKind;
+    [ObservableProperty] private string _dialogTitle = "";
+    [ObservableProperty] private string _dialogInput = "";
+    [ObservableProperty] private string _dialogInput2 = "";
+    [ObservableProperty] private string _dialogText = "";
+    [ObservableProperty] private string _dialogInputWatermark = "";
+    [ObservableProperty] private string _dialogInput2Watermark = "";
+    public bool DialogHasInput => DialogKind is PanDialogKind.Input or PanDialogKind.TwoInput;
+    public bool DialogHasInput2 => DialogKind is PanDialogKind.TwoInput;
+    public bool DialogHasText => DialogKind is PanDialogKind.Text;
+    public bool DialogIsConfirm => DialogKind is PanDialogKind.Confirm;
+    /// <summary>Text 与 Confirm 两种弹窗都展示正文。</summary>
+    public bool DialogShowText => DialogKind is PanDialogKind.Text or PanDialogKind.Confirm;
+
+    private Func<string, string, Task>? _dialogAction;
+
+    partial void OnDialogKindChanged(PanDialogKind value)
+    {
+        OnPropertyChanged(nameof(DialogHasInput));
+        OnPropertyChanged(nameof(DialogHasInput2));
+        OnPropertyChanged(nameof(DialogHasText));
+        OnPropertyChanged(nameof(DialogIsConfirm));
+        OnPropertyChanged(nameof(DialogShowText));
+    }
+
+    private void OpenDialog(PanDialogKind kind, string title, string text = "",
+        string wm1 = "", string wm2 = "", string input1 = "",
+        Func<string, string, Task>? action = null)
+    {
+        DialogKind = kind; DialogTitle = title; DialogText = text;
+        DialogInputWatermark = wm1; DialogInput2Watermark = wm2;
+        DialogInput = input1; DialogInput2 = "";
+        _dialogAction = action;
+        IsDialogOpen = true;
+    }
+
+    [RelayCommand]
+    private async Task DialogConfirmAsync()
+    {
+        var action = _dialogAction;
+        var i1 = DialogInput; var i2 = DialogInput2;
+        _dialogAction = null; IsDialogOpen = false;
+        if (action == null) return;
+        try { await action(i1, i2); }
+        catch (PanException ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { StatusMessage = $"操作异常：{ex.Message}"; }
+    }
+
+    [RelayCommand]
+    private void DialogCancel() { _dialogAction = null; IsDialogOpen = false; }
+
+    // ---- 各操作入口 ----
+
+    [RelayCommand]
+    private void NewFolder() => OpenDialog(PanDialogKind.Input, "新建文件夹", wm1: "文件夹名称",
+        action: async (name, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            await Client.CreateFolderAsync(_dirStack[^1], name.Trim());
+            await LoadCurrentAsync();
+            StatusMessage = $"已新建「{name.Trim()}」";
+        });
+
+    [RelayCommand]
+    private void RenameSelected()
+    {
+        var row = SelectedFiles.FirstOrDefault();
+        if (row == null) return;
+        var file = row.File;
+        OpenDialog(PanDialogKind.Input, "重命名", wm1: "新名称", input1: file.Name,
+            action: async (name, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(name) || name.Trim() == file.Name) return;
+                await Client.RenameAsync(file, name.Trim());
+                await LoadCurrentAsync();
+                StatusMessage = $"已重命名为「{name.Trim()}」";
+            });
+    }
+
+    [RelayCommand]
+    private void DeleteSelected()
+    {
+        var files = SelectedFiles.Select(r => r.File).ToArray();
+        if (files.Length == 0) return;
+        OpenDialog(PanDialogKind.Confirm, "删除确认",
+            text: $"将删除 {files.Length} 项（移入回收站）：\n" +
+                  string.Join("\n", files.Take(5).Select(f => "· " + f.Name)) +
+                  (files.Length > 5 ? $"\n… 等共 {files.Length} 项" : ""),
+            action: async (_, _) =>
+            {
+                await Client.DeleteAsync(files);
+                await LoadCurrentAsync();
+                StatusMessage = $"已删除 {files.Length} 项";
+            });
+    }
+
+    [RelayCommand]
+    private void ShareSelected()
+    {
+        var files = SelectedFiles.Select(r => r.File).ToArray();
+        if (files.Length == 0) { StatusMessage = "请先勾选要分享的文件"; return; }
+        if (!IsLoggedIn) { StatusMessage = "未登录"; return; }
+        var folders = files.Count(f => f.IsDirectory);
+        var title = files[0].Name + (files.Length > 1 ? $" 等{files.Length}项" : "");
+        OpenDialog(PanDialogKind.Input, "创建分享",
+            wm1: "提取码（4 位字母/数字，留空随机生成）",
+            action: async (pwd, _) =>
+            {
+                var code = pwd.Trim();
+                if (code.Length > 0)
+                {
+                    if (code.Length != 4 || !System.Text.RegularExpressions.Regex.IsMatch(code, "^[a-zA-Z0-9]{4}$"))
+                    {
+                        StatusMessage = "提取码需为 4 位字母或数字，已取消";
+                        return;
+                    }
+                    code = code.ToLowerInvariant();
+                }
+                IsLoading = true; StatusMessage = "正在创建分享…";
+                try
+                {
+                    var share = await Client.CreateShareAsync(
+                        new PanShareOptions(files, title, 0, code.Length == 0 ? null : code));
+                    var url = share.Passcode != null && !share.ShareUrl.Contains("?pwd=")
+                        ? $"{share.ShareUrl}?pwd={share.Passcode}" : share.ShareUrl;
+                    OpenDialog(PanDialogKind.Text, "分享链接（永久有效）", text: url);
+                    StatusMessage = "分享已创建";
+                }
+                catch (PanException ex) { StatusMessage = $"创建分享失败：{ex.Message}"; }
+                catch (Exception ex) { StatusMessage = $"分享异常：{ex.Message}"; }
+                finally { IsLoading = false; }
+            });
+    }
+
+    [RelayCommand]
+    private void SaveShare() => OpenDialog(PanDialogKind.TwoInput, "转存分享链接",
+        wm1: "夸克/百度分享链接（https://…/s/…）", wm2: "提取码（链接含 pwd 可留空）",
+        action: async (url, pwd) =>
+        {
+            if (string.IsNullOrWhiteSpace(url)) return;
+            var link = url.Trim();
+            var code = pwd.Trim();
+            if (code.Length == 0 && link.Contains("?pwd="))
+                code = link.Split("?pwd=")[1].Split('&')[0];
+            var r = await Client.SaveShareAsync(link, code.Length == 0 ? null : code, _dirStack[^1]);
+            await LoadCurrentAsync();
+            StatusMessage = $"已转存 {r.SavedCount} 项 → {r.SavedToDirName}";
+        });
+
+    [RelayCommand]
+    private void OfflineDownload() => OpenDialog(PanDialogKind.Input, "离线下载（百度）",
+        wm1: "magnet / ed2k 链接",
+        action: async (url, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(url)) return;
+            var t = await Client.AddOfflineTaskAsync(url.Trim(), _dirStack[^1]);
+            StatusMessage = $"已添加离线任务（id={t.TaskId}），完成后会出现在 {t.SavePath}";
+        });
 }

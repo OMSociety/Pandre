@@ -68,6 +68,7 @@ Pandre.Desktop (Avalonia MVVM) ──> Pandre.Download (aria2 队列)
 | 路径 | 风险 | 改动前后置动作 |
 |---|---|---|
 | src/Pandre.Core/Quark/QuarkPanClient.cs | file/download 有 UA 门：Web UA 对 ≥100MB 报 23018 download file size limit，必须用桌面客户端 UA；Cookie 缺 __puus 时 OSS 回调 403 require login [auth miss]，需先调 auth/pc/flush | 读 docs/开发文档.md §4 |
+| src/Pandre.Core/Baidu/BaiduPanClient.cs | 分享创建走 share/pset（path_list 按路径、纯 Cookie），旧 share/set 会 errno=-3；文档规格在 docs/开发文档.md §4b | 改分享前跑 BaiduProbe 验证 |
 | src/Pandre.Core/Baidu/BaiduQrLogin.cs | qrbdusslogin 响应是伪 JSON，bduss/stoken 须用正则从 session 字段抽取；Set-Cookie 里的 BDUSS 对 pan 接口无效 | 读 docs/开发文档.md §4 |
 | src/Pandre.Desktop/Services/AppServices.cs | InitAsync 曾因重构漏被调用，下载引擎从未启动且界面无报错 | 改启动流程后实测下载一次 |
 | src/Pandre.Desktop/App.axaml | 控件观感靠覆盖 Avalonia Fluent 内部资源键实现，键名绑定 12.1.4 | 升级 Avalonia 前先对键名 |
@@ -81,6 +82,7 @@ Pandre.Desktop (Avalonia MVVM) ──> Pandre.Download (aria2 队列)
 | 夸克接口 23018 download file size limit | file/download 用了 Web 端 UA；换桌面客户端 UA，规格见 docs/开发文档.md §4 |
 | 夸克下载 403 RequestDeniedByCallback: require login [auth miss] | Cookie 缺 __puus；登录后需调 auth/pc/flush 补发，见 docs/开发文档.md §4 |
 | 百度接口 errno=-6 | bduss 无效或未登录；检查是否误用了 Set-Cookie 的 BDUSS（应用 qrbdusslogin 响应 session 里的值） |
+| XamlLoadException: No precompiled XAML found for Pandre.Desktop.App | 改了 .axaml 后增量构建会跳过 XAML 编译错误并产出缺预编译 XAML 的程序集；先删 src/Pandre.Desktop/obj、bin 再全量重建，以全量构建的 AVLN 报错为准 |
 
 ## 维护
 

@@ -430,8 +430,43 @@ public sealed class BaiduPanClient : IPanClient
         await PcsFileOpAsync("delete", payload, "删除", ct);
     }
 
-    // ============ P2：离线下载（cloud_dl，参数走 query 无请求体） ============
+    // ============ P2：分享（share/pset 私密分享；百度现行只发带提取码的，未指定时随机生成 4 位） ============
 
+    /// <summary>创建私密分享。路径按 path_list JSON 数组提交，凭 Cookie 鉴权，无需 bdstoken。</summary>
+    public async Task<PanShare> CreateShareAsync(PanShareOptions options, CancellationToken ct = default)
+    {
+        if (options.Files.Count == 0) throw new PanException("没有可分享的文件", -1);
+        var pwd = options.Passcode;
+        if (string.IsNullOrEmpty(pwd))
+        {
+            // 百度已取消无提取码的公开链接；随机生成 4 位提取码（去掉易混字符）
+            const string chars = "abcdefghjkmnpqrstuvwxyz23456789";
+            pwd = new string(Enumerable.Range(0, 4).Select(_ => chars[Random.Shared.Next(chars.Length)]).ToArray());
+        }
+        var pathList = "[" + string.Join(",", options.Files.Select(f => JsonSerializer.Serialize(f.Path))) + "]";
+        var body = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["path_list"] = pathList,
+            ["schannel"] = "4",            // 私密分享
+            ["channel_list"] = "[]",
+            ["period"] = options.ExpireDays.ToString(), // 0=永久 1/7/30=天数
+            ["pwd"] = pwd,
+            ["share_type"] = "9",
+        });
+        var resp = await Http.PostAsync("https://pan.baidu.com/share/pset", body, ct);
+        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct)).RootElement;
+        if (root.TryGetProperty("errno", out var en) && en.GetInt32() != 0)
+            throw new PanException($"百度创建分享失败 errno={en.GetInt32()}", en.GetInt32());
+        var link = root.GetProperty("link").GetString()!;
+        return new PanShare(
+            root.TryGetProperty("shareid", out var sid) ? sid.GetInt64().ToString() : "0",
+            link, options.Title, pwd, options.Files.Count,
+            DateTimeOffset.Now,
+            options.ExpireDays == 0 ? null : DateTimeOffset.Now.AddDays(options.ExpireDays),
+            PanProvider.Baidu);
+    }
+
+    // ============ P2：离线下载（cloud_dl，参数走 query 无请求体） ============
     private const string CloudDlBase = "https://pan.baidu.com/rest/2.0/services/cloud_dl";
 
     public async Task<PanOfflineTask> AddOfflineTaskAsync(string sourceUrl, PanFile? saveDir, CancellationToken ct = default)

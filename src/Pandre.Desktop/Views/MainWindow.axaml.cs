@@ -74,14 +74,45 @@ public partial class MainWindow : Window
         if (DataContext is ViewModels.MainViewModel vm) vm.IsLoginPanelOpen = false;
     }
 
-    /// <summary>Esc 收起弹窗。</summary>
+    /// <summary>网盘弹窗：点遮罩空白关闭（遮罩 Border 的 DataContext 是 CurrentPan）。</summary>
+    private void OnPanDialogScrimPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (ReferenceEquals(e.Source, sender) && (sender as Control)?.DataContext is ViewModels.PanViewModel vm)
+            vm.DialogCancelCommand.Execute(null);
+    }
+
+    /// <summary>复制网盘弹窗正文（分享链接）到剪贴板。</summary>
+    private async void OnCopyPanDialogTextClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not ViewModels.PanViewModel vm) return;
+        var clipboard = Clipboard;
+        if (clipboard != null && vm.DialogText.Length > 0)
+        {
+            // Avalonia 12 新剪贴板 API：DataTransfer + DataTransferItem
+            var transfer = new DataTransfer();
+            transfer.Add(DataTransferItem.CreateText(vm.DialogText));
+            await clipboard.SetDataAsync(transfer);
+            vm.StatusMessage = "已复制到剪贴板";
+        }
+    }
+
+    /// <summary>Esc 收起弹窗（登录弹窗或网盘操作弹窗）。</summary>
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && DataContext is ViewModels.MainViewModel vm && vm.IsLoginPanelOpen)
+        if (e.Key == Key.Escape && DataContext is ViewModels.MainViewModel vm)
         {
-            vm.IsLoginPanelOpen = false;
-            e.Handled = true;
-            return;
+            if (vm.IsLoginPanelOpen)
+            {
+                vm.IsLoginPanelOpen = false;
+                e.Handled = true;
+                return;
+            }
+            if (vm.CurrentPan is { IsDialogOpen: true } pan)
+            {
+                pan.DialogCancelCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
         }
         base.OnKeyDown(e);
     }
