@@ -12,7 +12,9 @@ namespace Pandre.Desktop.ViewModels;
 /// <summary>下载列表的一行。</summary>
 public partial class DownloadRowViewModel : ViewModelBase
 {
-    public DownloadRowViewModel(DownloadTask task) { Task = task; Refresh(); }
+    private readonly DownloadsViewModel _owner;
+
+    public DownloadRowViewModel(DownloadTask task, DownloadsViewModel owner) { Task = task; _owner = owner; Refresh(); }
 
     public DownloadTask Task { get; }
     public string Name => Task.FileName;
@@ -24,6 +26,10 @@ public partial class DownloadRowViewModel : ViewModelBase
     [ObservableProperty] private string _sizeText = "";
     [ObservableProperty] private bool _canPause;
     [ObservableProperty] private bool _canResume;
+    [ObservableProperty] private bool _isSelected;
+
+    /// <summary>已完成：删除按钮走「询问是否删本地文件」的菜单，而不是直接删。</summary>
+    public bool IsComplete => Task.Status == DownloadStatus.Complete;
 
     public void Refresh()
     {
@@ -45,7 +51,14 @@ public partial class DownloadRowViewModel : ViewModelBase
         };
         CanPause = t.Status is DownloadStatus.Downloading or DownloadStatus.Queued;
         CanResume = t.Status == DownloadStatus.Paused;
+        OnPropertyChanged(nameof(IsComplete));
     }
+
+    /// <summary>已完成任务的删除：仅移除记录。命令放行级，弹出的菜单绑定不到外层 DataContext。</summary>
+    [RelayCommand] private System.Threading.Tasks.Task RemoveKeepAsync() => _owner.RemoveRowAsync(this, deleteLocalFiles: false);
+
+    /// <summary>已完成任务的删除：连本地文件一起删。</summary>
+    [RelayCommand] private System.Threading.Tasks.Task RemoveWithFilesAsync() => _owner.RemoveRowAsync(this, deleteLocalFiles: true);
 }
 
 /// <summary>云端离线下载任务的一行（只读展示）。</summary>
@@ -94,8 +107,19 @@ public partial class DownloadsViewModel : ViewModelBase
     [ObservableProperty] private string _downloadDir = AppServices.DownloadDir;
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty] private bool _offlineLoaded;
+    [ObservableProperty] private bool _isMultiSelect;
+
+    /// <summary>批量条上的「已选 N 项」。</summary>
+    public string SelectedCountText => $"已选 {Rows.Count(r => r.IsSelected)} 项";
 
     partial void OnDownloadDirChanged(string value) => AppServices.DownloadDir = value;
+
+    partial void OnIsMultiSelectChanged(bool value)
+    {
+        // 退出多选时顺手清掉勾选，免得下次进来还挂着旧状态
+        if (!value) foreach (var r in Rows) r.IsSelected = false;
+        OnPropertyChanged(nameof(SelectedCountText));
+    }
 
     /// <summary>从 DownloadManager 的快照重建行（线程→UI）。</summary>
     public void Refresh()
@@ -103,7 +127,19 @@ public partial class DownloadsViewModel : ViewModelBase
         var tasks = AppServices.Downloads.Tasks;
         // 简单整体重建（P1 规模足够）
         Rows.Clear();
-        foreach (var t in tasks) Rows.Add(new DownloadRowViewModel(t));
+        foreach (var t in tasks) AddRow(t);
+        OnPropertyChanged(nameof(SelectedCountText));
+    }
+
+    private void AddRow(DownloadTask t)
+    {
+        var row = new DownloadRowViewModel(t, this);
+        // 勾选数变化要刷新批量条上的计数
+        row.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(DownloadRowViewModel.IsSelected)) OnPropertyChanged(nameof(SelectedCountText));
+        };
+        Rows.Add(row);
     }
 
     /// <summary>拉取云端离线下载任务（目前只百度支持）。</summary>
@@ -131,10 +167,12 @@ public partial class DownloadsViewModel : ViewModelBase
             var row = Rows.FirstOrDefault(r => r.Task == t);
             if (row == null)
             {
-                row = new DownloadRowViewModel(t);
-                Rows.Add(row);
+                AddRow(t);
             }
-            row.Refresh();
+            else
+            {
+                row.Refresh();
+            }
         });
     }
 
@@ -154,13 +192,53 @@ public partial class DownloadsViewModel : ViewModelBase
 
     [RelayCommand] private async System.Threading.Tasks.Task RemoveAsync(DownloadRowViewModel? row)
     {
-        if (row == null) return;
+        // 未完成任务的删除入口：直接删，引擎会连过程文件一起清；已完成任务的删除走行内菜单（RemoveKeep/RemoveWithFiles）
+        if (row == null || row.IsComplete) return;
+        await RemoveRowAsync(row, deleteLocalFiles: false);
+    }
+
+    /// <summary>删除一行任务。未完成 → 连过程文件一起删；已完成 → 按 deleteLocalFiles 决定是否删成品文件。</summary>
+    public async System.Threading.Tasks.Task RemoveRowAsync(DownloadRowViewModel row, bool deleteLocalFiles)
+    {
         try
         {
-            await AppServices.Downloads.RemoveAsync(row.Task);
+            await AppServices.Downloads.RemoveAsync(row.Task, deleteLocalFiles);
             Rows.Remove(row);
+            OnPropertyChanged(nameof(SelectedCountText));
+            StatusText = row.IsComplete
+                ? (deleteLocalFiles ? "已移除，并删除了本地文件" : "已从列表移除")
+                : "已删除任务与过程文件";
         }
         catch (Exception ex) { StatusText = $"移除失败：{ex.Message}"; }
+    }
+
+    [RelayCommand] private void SelectAll() { foreach (var r in Rows) r.IsSelected = true; }
+
+    [RelayCommand] private void ClearSelection() { foreach (var r in Rows) r.IsSelected = false; }
+
+    /// <summary>批量删除：保留已完成任务的本地文件。</summary>
+    [RelayCommand] private System.Threading.Tasks.Task RemoveSelectedKeepFilesAsync() => RemoveSelectedAsync(deleteLocalFiles: false);
+
+    /// <summary>批量删除：已完成任务的本地文件也一起删。</summary>
+    [RelayCommand] private System.Threading.Tasks.Task RemoveSelectedWithFilesAsync() => RemoveSelectedAsync(deleteLocalFiles: true);
+
+    private async System.Threading.Tasks.Task RemoveSelectedAsync(bool deleteLocalFiles)
+    {
+        var selected = Rows.Where(r => r.IsSelected).ToList();
+        if (selected.Count == 0) { StatusText = "没有勾选任何任务"; return; }
+        var done = 0; var failed = 0;
+        foreach (var row in selected)
+        {
+            try
+            {
+                await AppServices.Downloads.RemoveAsync(row.Task, deleteLocalFiles);
+                Rows.Remove(row);
+                done++;
+            }
+            catch { failed++; }
+        }
+        IsMultiSelect = false;   // 批量操作完退出多选，顺带清空勾选
+        StatusText = failed == 0 ? $"已删除 {done} 项" : $"已删除 {done} 项，{failed} 项失败";
     }
 
     [RelayCommand] private void OpenDir()

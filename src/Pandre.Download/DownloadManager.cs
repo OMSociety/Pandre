@@ -97,8 +97,12 @@ public sealed class DownloadManager : IDisposable
         if (t.Gid != null) await _engine.CallAsync("aria2.unpause", t.Gid).ConfigureAwait(false);
     }
 
-    /// <summary>移除任务：活动中的先强制停，再清结果记录。磁盘上已下载的部分文件保留（用户自行删）。</summary>
-    public async Task RemoveAsync(DownloadTask t)
+    /// <summary>
+    /// 移除任务：活动中的先强制停，再清结果记录。
+    /// 未完成的任务总是连过程文件一起删（分片残件 + .aria2 控制文件）；
+    /// 已完成的任务仅在 deleteLocalFiles 为真时删除成品文件（由界面询问决定）。
+    /// </summary>
+    public async Task RemoveAsync(DownloadTask t, bool deleteLocalFiles = false)
     {
         if (t.Gid != null)
         {
@@ -112,6 +116,49 @@ public sealed class DownloadManager : IDisposable
             catch { /* 已完成的任务可能已被 aria2 自动清理，忽略 */ }
         }
         lock (_gate) _tasks.Remove(t);
+
+        // 磁盘清理只允许落在下载目录之内（FileName 来自服务端，防 ../ 越界）
+        var fullDir = Path.GetFullPath(t.SaveDir);
+        var fullPath = Path.GetFullPath(t.SavePath);
+        if (!fullPath.StartsWith(fullDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return;
+
+        var deletePartial = t.Status != DownloadStatus.Complete;
+        if (deletePartial || deleteLocalFiles)
+        {
+            TryDelete(fullPath);
+            // aria2 在 forceRemove 返回之后才把 .aria2 控制文件落盘（供断点续传），
+            // 只删一遍会被它重建——短轮询盯着，写回来就再删，连续两轮不在才收手（实测）。
+            await WatchDeleteAsync(fullPath + ".aria2").ConfigureAwait(false);
+        }
+    }
+
+    private static async Task WatchDeleteAsync(string path)
+    {
+        for (var round = 0; round < 12; round++)
+        {
+            TryDelete(path);
+            await Task.Delay(220).ConfigureAwait(false);
+            if (!File.Exists(path))
+            {
+                await Task.Delay(220).ConfigureAwait(false);
+                if (!File.Exists(path)) return;
+            }
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        // forceRemove 之后 aria2 可能还握着句柄，撞锁时短等重试一次
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+                return;
+            }
+            catch (IOException) when (attempt == 0) { Thread.Sleep(200); }
+            catch (UnauthorizedAccessException) { return; }
+        }
     }
 
     private async Task PollLoopAsync(CancellationToken ct)

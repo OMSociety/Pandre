@@ -4,30 +4,50 @@
              xmlns:vm="using:Pandre.Desktop.ViewModels"
              x:Class="Pandre.Desktop.Views.DownloadsView"
              x:DataType="vm:DownloadsViewModel">
-  <Grid RowDefinitions="Auto,*,Auto">
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
     <!-- 工具栏 -->
-    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
       <TextBlock Grid.Column="0" Classes="secondary" VerticalAlignment="Center"
                  Text="{Binding DownloadDir, StringFormat='保存到：{0}'}" TextTrimming="CharacterEllipsis"/>
-      <Button Grid.Column="1" Command="{Binding OpenDirCommand}">
+      <ToggleButton Grid.Column="1" IsChecked="{Binding IsMultiSelect}" Margin="0,0,8,0"
+                    ToolTip.Tip="勾选多个任务，批量删除">多选</ToggleButton>
+      <Button Grid.Column="2" Command="{Binding OpenDirCommand}">
         <StackPanel Orientation="Horizontal" Spacing="6">
           <PathIcon Data="{x:Static local:AppIcons.FolderOpen}" Width="15" Height="15"/>
           <TextBlock Text="打开目录" VerticalAlignment="Center"/>
         </StackPanel>
       </Button>
     </Grid>
+    <!-- 多选模式的批量条 -->
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10"
+                IsVisible="{Binding IsMultiSelect}">
+      <Button Command="{Binding SelectAllCommand}">全选</Button>
+      <Button Command="{Binding ClearSelectionCommand}">清空</Button>
+      <TextBlock Classes="secondary" VerticalAlignment="Center" Text="{Binding SelectedCountText}"/>
+      <Button>
+        <Button.Flyout>
+          <MenuFlyout>
+            <MenuItem Header="仅移除记录（保留本地文件）" Command="{Binding RemoveSelectedKeepFilesCommand}"/>
+            <MenuItem Header="移除并删除本地文件" Command="{Binding RemoveSelectedWithFilesCommand}"/>
+          </MenuFlyout>
+        </Button.Flyout>
+        删除选中
+      </Button>
+    </StackPanel>
     <!-- 下载行列表 + 云端离线任务 -->
-    <ScrollViewer Grid.Row="1">
+    <ScrollViewer Grid.Row="2">
       <StackPanel>
         <ListBox Classes="rows" ItemsSource="{Binding Rows}">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:DownloadRowViewModel">
               <Border Classes="row-card">
-                <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
-                  <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto" VerticalAlignment="Center">
+                  <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,10,0"
+                            IsVisible="{Binding $parent[ListBox].((vm:DownloadsViewModel)DataContext).IsMultiSelect}"/>
+                  <PathIcon Grid.Column="1" Data="{x:Static local:AppIcons.ArrowDownload}"
                             Width="20" Height="20" Margin="0,0,12,0"
                             Foreground="{DynamicResource AccentBrush}"/>
-                  <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                  <StackPanel Grid.Column="2" VerticalAlignment="Center">
                     <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
                     <Grid ColumnDefinitions="*,Auto" Margin="0,5,0,0">
                       <ProgressBar Grid.Column="0" Value="{Binding Progress}" Maximum="100" Margin="0,0,10,0" VerticalAlignment="Center"/>
@@ -37,7 +57,7 @@
                       <Run Text="{Binding StatusText}"/><Run Text="  "/><Run Text="{Binding SpeedText}"/>
                     </TextBlock>
                   </StackPanel>
-                  <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Margin="14,0,0,0" VerticalAlignment="Center">
+                  <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="14,0,0,0" VerticalAlignment="Center">
                     <Button Classes="icon-btn" IsVisible="{Binding CanPause}"
                             Command="{Binding $parent[ListBox].((vm:DownloadsViewModel)DataContext).PauseCommand}"
                             CommandParameter="{Binding}">
@@ -48,9 +68,20 @@
                             CommandParameter="{Binding}">
                       <PathIcon Data="{x:Static local:AppIcons.Play}" Width="14" Height="14"/>
                     </Button>
-                    <Button Classes="icon-btn"
+                    <!-- 未完成：直接删（过程文件一起清）；已完成：弹出菜单询问是否删本地文件 -->
+                    <Button Classes="icon-btn" IsVisible="{Binding !IsComplete}"
+                            ToolTip.Tip="删除任务，过程文件一并清除"
                             Command="{Binding $parent[ListBox].((vm:DownloadsViewModel)DataContext).RemoveCommand}"
                             CommandParameter="{Binding}">
+                      <PathIcon Data="{x:Static local:AppIcons.Delete}" Width="14" Height="14"/>
+                    </Button>
+                    <Button Classes="icon-btn" IsVisible="{Binding IsComplete}" ToolTip.Tip="删除">
+                      <Button.Flyout>
+                        <MenuFlyout>
+                          <MenuItem Header="仅从列表移除" Command="{Binding RemoveKeepCommand}"/>
+                          <MenuItem Header="移除并删除本地文件" Command="{Binding RemoveWithFilesCommand}"/>
+                        </MenuFlyout>
+                      </Button.Flyout>
                       <PathIcon Data="{x:Static local:AppIcons.Delete}" Width="14" Height="14"/>
                     </Button>
                   </StackPanel>
@@ -101,6 +132,6 @@
         </StackPanel>
       </StackPanel>
     </ScrollViewer>
-    <TextBlock Grid.Row="2" Classes="secondary" Text="{Binding StatusText}" Margin="0,8,0,0"/>
+    <TextBlock Grid.Row="3" Classes="secondary" Text="{Binding StatusText}" Margin="0,8,0,0"/>
   </Grid>
 </UserControl>
