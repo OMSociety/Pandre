@@ -494,7 +494,7 @@ public sealed class BaiduPanClient : IPanClient
             PanProvider.Baidu);
     }
 
-    // ============ P2：转存（share/verify → 分享页 locals.mset → share/transfer，规格交叉验证 hxz393/BaiduPCS-Go/drunkdream） ============
+    // ============ P2：转存（share/verify → shorturlinfo + share/list → share/transfer，规格交叉验证 hxz393/BaiduPCS-Go/drunkdream） ============
 
     private string? _bdstoken;
 
@@ -525,43 +525,20 @@ public sealed class BaiduPanClient : IPanClient
                 if (c.Name == name) c.Expired = true;   // 置过期即从容器移除
     }
 
-    /// <summary>取分享页 HTML（必须用 netdisk 客户端 UA，Chrome UA 会被弹无 loginstate 登录页，BaiduPCS-Go issue#534）。</summary>
-    private async Task<string> GetSharePageHtml(string url, CancellationToken ct)
+    /// <summary>分享根层条目（fs_id 字符串，兼容数字形态）。</summary>
+    private static IEnumerable<long> ReadFsIds(JsonElement list)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        // ProductInfo 解析器拒收分号富 UA，必须走不校验通道
-        req.Headers.TryAddWithoutValidation("User-Agent", PanHttp.BaiduNetdiskClientUa);
-        req.Headers.Referrer = new Uri("https://pan.baidu.com/s/");
-        using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
-        return await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-    }
-
-    /// <summary>从分享页 HTML 提取 locals.mset(...) 的参数 JSON（花括号配平，兼容多行与嵌套）。</summary>
-    private static string? ExtractLocalsMset(string html)
-    {
-        var at = html.IndexOf("locals.mset(", StringComparison.Ordinal);
-        if (at < 0) return null;
-        var open = html.IndexOf('{', at + 11);
-        if (open < 0) return null;
-        var depth = 0; var inStr = false; var esc = false;
-        for (var i = open; i < html.Length; i++)
+        foreach (var it in list.EnumerateArray())
         {
-            var ch = html[i];
-            if (inStr)
+            if (!it.TryGetProperty("fs_id", out var f)) continue;
+            var id = f.ValueKind switch
             {
-                if (esc) esc = false;
-                else if (ch == '\\') esc = true;
-                else if (ch == '"') inStr = false;
-                continue;
-            }
-            if (ch == '"') inStr = true;
-            else if (ch == '{') depth++;
-            else if (ch == '}')
-            {
-                if (--depth == 0) return html.Substring(open, i - open + 1);
-            }
+                JsonValueKind.String when long.TryParse(f.GetString(), out var s) => s,
+                JsonValueKind.Number => f.GetInt64(),
+                _ => 0L,
+            };
+            if (id != 0) yield return id;
         }
-        return null;
     }
 
     public async Task<PanSaveShareResult> SaveShareAsync(string shareUrl, string? passcode, PanFile? targetDir, CancellationToken ct = default)
@@ -597,28 +574,52 @@ public sealed class BaiduPanClient : IPanClient
             var vRoot = JsonDocument.Parse(await vResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false)).RootElement;
             var verrno = vRoot.TryGetProperty("errno", out var ve) ? ve.GetInt32() : -1;
             if (verrno != 0)
-                throw new PanException(verrno is -9 or -12 ? "提取码错误" : $"验证提取码失败 errno={verrno}", verrno);
+                throw new PanException(verrno switch
+                {
+                    -9 or -12 => "提取码错误",
+                    105 => "分享已失效或不存在",
+                    -62 => "该分享被访问次数过多，已触发百度验证，请稍后再试",
+                    _ => $"验证提取码失败 errno={verrno}",
+                }, verrno);
             if (!vRoot.TryGetProperty("randsk", out var rk) || rk.ValueKind != JsonValueKind.String)
                 throw new PanException("验证提取码响应缺 randsk");
             SetCookie("BDCLND", rk.GetString()!);
         }
 
-        // 2. 分享页 locals.mset → shareid / share_uk / 根层 fs_id 列表
-        var html = await GetSharePageHtml($"https://pan.baidu.com/s/{key}", ct).ConfigureAwait(false);
-        if (html.Contains("platform-non-found") || html.Contains("error-404"))
-            throw new PanException("分享已失效或不存在");
-        var msetJson = ExtractLocalsMset(html);
-        if (msetJson == null) throw new PanException("分享页解析失败（locals.mset 未找到，链接可能失效）");
-        JsonElement meta;
-        try { meta = JsonDocument.Parse(msetJson).RootElement; }
-        catch (JsonException) { throw new PanException("分享页元数据 JSON 解析失败"); }
-        var shareId = meta.GetProperty("shareid").GetInt64().ToString();
-        var shareUk = meta.GetProperty("share_uk").GetString()!;
+        // 2. 分享元数据 + 根层文件：走 share 接口，不解析分享页 HTML。
+        //    页面取法已废：netdisk 客户端 UA 拿到的精简页（约 5.8KB）既无 locals.mset 也无文件列表，
+        //    浏览器 UA 页面的字段形态又随页面模板漂移（2026-10-15 实测四种取法全部取不到 fs_id）。
+        //    接口口径（同日实测）：shorturlinfo 的 shorturl 要「完整 key（带首字符 1）」；
+        //    share/list 的 shorturl 要「去掉首字符 1」，且带提取码的分享必须先 verify 拿到 BDCLND。
+        var siRoot = JsonDocument.Parse(await Http.GetStringAsync(
+            $"{ApiBase}/api/shorturlinfo?shorturl={key}&web=1&app_id={PanAppId}&channel=chunlei&clienttype=0",
+            ct).ConfigureAwait(false)).RootElement;
+        if (!siRoot.TryGetProperty("shareid", out var sidEl) || !siRoot.TryGetProperty("uk", out var ukEl))
+            throw new PanException("分享链接无效或已失效");
+        var shareId = sidEl.GetInt64();
+        var shareUk = ukEl.GetInt64();
 
         var fsIds = new List<long>();
-        if (meta.TryGetProperty("file_list", out var fl) && fl.ValueKind == JsonValueKind.Array)
-            foreach (var f in fl.EnumerateArray())
-                if (f.TryGetProperty("fs_id", out var fid)) fsIds.Add(fid.GetInt64());
+        for (var page = 1; ; page++)
+        {
+            var listRoot = JsonDocument.Parse(await Http.GetStringAsync(
+                $"{ApiBase}/share/list?shorturl={surl}&root=1&web=5&num=100&page={page}&dir=%2F" +
+                $"&channel=chunlei&app_id={PanAppId}&clienttype=0", ct).ConfigureAwait(false)).RootElement;
+            var lerrno = listRoot.TryGetProperty("errno", out var le) ? le.GetInt32() : -1;
+            if (lerrno != 0)
+                throw new PanException(lerrno switch
+                {
+                    -9 => "该分享需要提取码（或提取码错误）",
+                    -21 => "分享已被取消或删除",
+                    140 => "分享已失效或不存在",
+                    8001 => "该分享触发了百度验证，请稍后再试",
+                    _ => $"读取分享文件列表失败 errno={lerrno}",
+                }, lerrno);
+            if (!listRoot.TryGetProperty("list", out var list) || list.ValueKind != JsonValueKind.Array) break;
+            var got = 0;
+            foreach (var id in ReadFsIds(list)) { fsIds.Add(id); got++; }
+            if (got < 100) break;   // 还有下一页
+        }
         if (fsIds.Count == 0) throw new PanException("分享里没有可转存的文件");
 
         // 3. 转存：path=目标父目录（须已存在）；ondup=newcopy 同名生成副本不报错；目录 fs_id 一次转即递归整棵子树
@@ -626,22 +627,34 @@ public sealed class BaiduPanClient : IPanClient
         if (targetPath == "") targetPath = "/";
         var trUrl = $"{ApiBase}/share/transfer?shareid={shareId}&from={shareUk}&bdstoken={bdstoken}" +
                     $"&channel=chunlei&web=1&clienttype=0&app_id={PanAppId}&ondup=newcopy";
-        var trResp = await Http.PostAsync(trUrl,
-            new FormUrlEncodedContent(new Dictionary<string, string>
-            { ["fsidlist"] = "[" + string.Join(",", fsIds) + "]", ["path"] = targetPath }), ct).ConfigureAwait(false);
+        using var trReq = new HttpRequestMessage(HttpMethod.Post, trUrl)
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            { ["fsidlist"] = "[" + string.Join(",", fsIds) + "]", ["path"] = targetPath }),
+        };
+        // Referer 必须指向分享页：客户端默认的 disk/home 会被当参数错误拒（errno=2，且响应里没有 show_msg 业务字段）
+        trReq.Headers.TryAddWithoutValidation("Referer", $"https://pan.baidu.com/s/{key}");
+        var trResp = await Http.SendAsync(trReq, ct).ConfigureAwait(false);
         var trRoot = JsonDocument.Parse(await trResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false)).RootElement;
         var terrno = trRoot.TryGetProperty("errno", out var te) ? te.GetInt32() : -1;
         if (terrno != 0)
-            throw new PanException(terrno switch
+        {
+            // show_msg 是服务端给的人话（如「文件已存在」= 转存自己分享的文件），有就带上，便于定位
+            var showMsg = trRoot.TryGetProperty("show_msg", out var sm) && sm.ValueKind == JsonValueKind.String
+                ? sm.GetString() : null;
+            var reason = terrno switch
             {
                 -4 or -6 => "登录态失效，请重新扫码",
                 -8 or 4 => "目标目录已有同名文件",
                 -10 or 20 => "网盘容量不足",
-                2 => "参数错误或目标目录不存在",
+                // errno=2 有两义：参数/目录不存在，或转存自己网盘里的文件（服务端 show_msg「文件已存在」）
+                2 => showMsg ?? "参数错误或目标目录不存在",
                 12 => "转存文件数超过限制（免费用户单次约 500 项）",
                 111 => "请求过快，请稍后重试",
                 _ => $"转存失败 errno={terrno}",
-            }, terrno);
+            };
+            throw new PanException(reason, terrno);
+        }
         // 逐条 errno 计数：部分失败时只计成功条目，不虚报
         var saved = 0;
         if (trRoot.TryGetProperty("info", out var info) && info.ValueKind == JsonValueKind.Array)

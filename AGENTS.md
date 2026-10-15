@@ -85,6 +85,8 @@ Pandre.Desktop (Avalonia MVVM) ──> Pandre.Download (aria2 队列)
 | 夸克下载 403 RequestDeniedByCallback: require login [auth miss] | Cookie 缺 __puus；登录后需调 auth/pc/flush 补发，见 docs/开发文档.md §4 |
 | 百度接口 errno=-6 | bduss 无效或未登录；检查是否误用了 Set-Cookie 的 BDUSS（应用 qrbdusslogin 响应 session 里的值） |
 | XamlLoadException: No precompiled XAML found for Pandre.Desktop.App | 改了 .axaml 后增量构建会跳过 XAML 编译错误并产出缺预编译 XAML 的程序集；先删 src/Pandre.Desktop/obj、bin 再全量重建，以全量构建的 AVLN 报错为准 |
+| The character set provided in ContentType is invalid / 'utf8' is not a supported encoding name | 百度部分端点（api/create、share/cancel 等）把 Content-Type 写成 charset=utf8（无连字符），.NET 不认这个别名。已由 PanHttp.CreateClient 管道里的 CharsetFixHandler 统一归一；若在新客户端再遇到，说明该客户端没走 PanHttp.CreateClient |
+| 转存报「分享页解析失败（locals.mset 未找到）」 | 这是已废弃的页面解析路径。转存元数据必须走 api/shorturlinfo + share/list（两者 shorturl 口径相反），规格见 docs/开发文档.md §4b |
 
 ## 维护
 
