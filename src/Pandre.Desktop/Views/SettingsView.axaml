@@ -53,7 +53,7 @@
       <!-- 功能开关分组 -->
       <Border Classes="card">
         <StackPanel Spacing="4">
-          <TextBlock Classes="card-title" Text="功能开关" Margin="0,0,0,8"/>
+          <TextBlock Classes="card-title" Text="功能" Margin="0,0,0,8"/>
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.Settings}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
