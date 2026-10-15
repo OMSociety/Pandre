@@ -463,15 +463,20 @@ public partial class PanViewModel : ViewModelBase
 
     [RelayCommand]
     private void SaveShare() => OpenDialog(PanDialogKind.TwoInput, "转存分享链接",
-        wm1: "夸克链接 / 百度链接（pan.baidu.com/s/…）",
+        wm1: "夸克链接 / 百度链接（/s/1… 或 share/init?surl=…）",
         wm2: "提取码（链接含 pwd 可留空）",
         action: async (url, pwd) =>
         {
             if (string.IsNullOrWhiteSpace(url)) return;
             var link = url.Trim();
             var code = pwd.Trim();
-            if (code.Length == 0 && link.Contains("?pwd="))
-                code = link.Split("?pwd=")[1].Split('&')[0];
+            // 提取码留空时从链接里取：百度两种形态都出现在 URL 里（/s/xxx?pwd= 与
+            // share/init?surl=xxx&pwd=，后者是网页「复制链接」的实际形态，pwd 前是 & 不是 ?）
+            if (code.Length == 0)
+            {
+                var mp = System.Text.RegularExpressions.Regex.Match(link, @"[?&]pwd=([^&\s]+)");
+                if (mp.Success) code = mp.Groups[1].Value;
+            }
             var res = await Client.SaveShareAsync(link, code.Length == 0 ? null : code, _dirStack[^1]);
             await LoadCurrentAsync();
             StatusMessage = $"已转存 {res.SavedCount} 项 → {res.SavedToDirName}";

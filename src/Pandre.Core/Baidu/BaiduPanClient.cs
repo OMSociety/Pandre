@@ -543,14 +543,20 @@ public sealed class BaiduPanClient : IPanClient
 
     public async Task<PanSaveShareResult> SaveShareAsync(string shareUrl, string? passcode, PanFile? targetDir, CancellationToken ct = default)
     {
-        // 归一化：兼容 /share/init?surl= 与 ?pwd=
+        // 归一化：兼容 /s/1… 与 share/init?surl=…（后者可能是从网页复制的、带或不带主机的片段）
         var url = shareUrl.Trim();
         string key; // /s/ 后面的完整 key（首字符通常为 1）
-        var m = url.Contains("pan.baidu.com/share/init")
-            ? Regex.Match(url, @"surl=([0-9A-Za-z_-]+)")
-            : Regex.Match(url, @"pan\.baidu\.com/s/([0-9A-Za-z_-]+)");
-        if (!m.Success) throw new PanException("不是百度分享链接（应形如 https://pan.baidu.com/s/1…）");
-        key = m.Groups[1].Value;
+        var surlMatch = Regex.Match(url, @"[?&]surl=([0-9A-Za-z_-]+)");
+        if (surlMatch.Success)
+        {
+            key = surlMatch.Groups[1].Value;
+        }
+        else
+        {
+            var m = Regex.Match(url, @"pan\.baidu\.com/s/([0-9A-Za-z_-]+)");
+            if (!m.Success) throw new PanException("不是百度分享链接（应形如 https://pan.baidu.com/s/1… 或 …/share/init?surl=…）");
+            key = m.Groups[1].Value;
+        }
         if (!key.StartsWith('1')) key = "1" + key;
 
         ClearCookie("BDCLND");   // 上个链接的提取码 cookie 会串味，先剥掉（drunkdream 实证）
