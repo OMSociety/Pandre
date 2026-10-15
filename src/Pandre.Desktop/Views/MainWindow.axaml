@@ -176,7 +176,7 @@
               <PathIcon Data="{x:Static local:AppIcons.ArrowLeft}" Width="16" Height="16"/>
             </Button>
             <TextBlock Grid.Column="1" Classes="card-title" Margin="9,0,0,0" VerticalAlignment="Center"
-                       Text="界面功能开关"/>
+                       Text="功能开关"/>
           </Grid>
 
           <ScrollViewer Grid.Row="1" Margin="0,14,0,0">
