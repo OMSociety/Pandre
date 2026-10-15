@@ -158,6 +158,19 @@ public sealed class QuarkPanClient : IPanClient
         return links;
     }
 
+    /// <summary>按 fid 解析下载链：名字/大小用页面给出的值（下载接口只认 fid，无需先发 detail 请求）。</summary>
+    public async Task<IReadOnlyList<PanDownloadLink>> GetDownloadLinksByIdsAsync(
+        IReadOnlyList<PanRemoteFileRef> refs, CancellationToken ct = default)
+    {
+        var files = refs.Select(r => new PanFile(
+            r.Id,
+            "/" + (r.Name ?? r.Id),
+            r.Name ?? r.Id,
+            r.Size,
+            false, null, null, PanProvider.Quark)).ToArray();
+        return await GetDownloadLinksAsync(files, ct).ConfigureAwait(false);
+    }
+
     /// <summary>确保 Cookie 里有 __puus：没有就调 flush 让服务端补发（Set-Cookie 自动进 jar）。</summary>
     private async Task EnsurePuusAsync(CancellationToken ct)
     {

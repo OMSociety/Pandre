@@ -32,6 +32,8 @@
   <ItemGroup>
     <None Include="..\..\assets\windows\aria2c.exe" Link="assets\windows\aria2c.exe" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\assets\windows\aria2-COPYING.txt" Link="assets\windows\aria2-COPYING.txt" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 浏览器接管扩展源文件：构建时复制到输出目录 extension/，由 ExtensionInstaller 再装到 %APPDATA% -->
+    <None Include="..\..\assets\extension\**" Link="extension\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -114,6 +114,29 @@ public partial class DownloadsViewModel : ViewModelBase
 
     partial void OnDownloadDirChanged(string value) => AppServices.DownloadDir = value;
 
+    private int _statusStamp;
+
+    /// <summary>
+    /// 写下载页状态条。操作反馈默认 10 秒后自动清除（此前会一直挂着）；sticky=true 用于错误，保留到下次写入。
+    /// 计时带版本号：期间若又写了新状态，旧计时作废，不会把新提示提前抹掉。
+    /// </summary>
+    private void SetStatus(string text, bool sticky = false)
+    {
+        StatusText = text;
+        var stamp = ++_statusStamp;
+        if (sticky) return;
+        _ = ClearStatusLaterAsync(stamp);
+    }
+
+    private async System.Threading.Tasks.Task ClearStatusLaterAsync(int stamp)
+    {
+        await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(10));
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (stamp == _statusStamp) StatusText = "";
+        });
+    }
+
     partial void OnIsMultiSelectChanged(bool value)
     {
         // 退出多选时顺手清掉勾选，免得下次进来还挂着旧状态
@@ -146,17 +169,17 @@ public partial class DownloadsViewModel : ViewModelBase
     [RelayCommand]
     private async System.Threading.Tasks.Task RefreshOfflineAsync()
     {
-        StatusText = "正在获取云端任务…";
+        SetStatus("正在获取云端任务…");
         try
         {
             var tasks = await AppServices.Baidu.ListOfflineTasksAsync();
             OfflineRows.Clear();
             foreach (var t in tasks) OfflineRows.Add(new OfflineTaskRowViewModel(t));
             OfflineLoaded = true;
-            StatusText = tasks.Count == 0 ? "云端暂无离线下载任务" : $"云端共 {tasks.Count} 个任务";
+            SetStatus(tasks.Count == 0 ? "云端暂无离线下载任务" : $"云端共 {tasks.Count} 个任务");
         }
-        catch (PanException ex) { StatusText = $"获取云端任务失败：{ex.Message}"; }
-        catch (Exception ex) { StatusText = $"获取云端任务异常：{ex.Message}"; }
+        catch (PanException ex) { SetStatus($"获取云端任务失败：{ex.Message}", sticky: true); }
+        catch (Exception ex) { SetStatus($"获取云端任务异常：{ex.Message}", sticky: true); }
     }
 
     private void OnTaskUpdated(DownloadTask t)
@@ -180,14 +203,14 @@ public partial class DownloadsViewModel : ViewModelBase
     {
         if (row == null) return;
         try { await AppServices.Downloads.PauseAsync(row.Task); row.Refresh(); }
-        catch (Exception ex) { StatusText = $"暂停失败：{ex.Message}"; }
+        catch (Exception ex) { SetStatus($"暂停失败：{ex.Message}", sticky: true); }
     }
 
     [RelayCommand] private async System.Threading.Tasks.Task ResumeAsync(DownloadRowViewModel? row)
     {
         if (row == null) return;
         try { await AppServices.Downloads.ResumeAsync(row.Task); row.Refresh(); }
-        catch (Exception ex) { StatusText = $"继续失败：{ex.Message}"; }
+        catch (Exception ex) { SetStatus($"继续失败：{ex.Message}", sticky: true); }
     }
 
     [RelayCommand] private async System.Threading.Tasks.Task RemoveAsync(DownloadRowViewModel? row)
@@ -205,11 +228,11 @@ public partial class DownloadsViewModel : ViewModelBase
             await AppServices.Downloads.RemoveAsync(row.Task, deleteLocalFiles);
             Rows.Remove(row);
             OnPropertyChanged(nameof(SelectedCountText));
-            StatusText = row.IsComplete
+            SetStatus(row.IsComplete
                 ? (deleteLocalFiles ? "已移除，并删除了本地文件" : "已从列表移除")
-                : "已删除任务与过程文件";
+                : "已删除任务与过程文件");
         }
-        catch (Exception ex) { StatusText = $"移除失败：{ex.Message}"; }
+        catch (Exception ex) { SetStatus($"移除失败：{ex.Message}", sticky: true); }
     }
 
     [RelayCommand] private void SelectAll() { foreach (var r in Rows) r.IsSelected = true; }
@@ -225,7 +248,7 @@ public partial class DownloadsViewModel : ViewModelBase
     private async System.Threading.Tasks.Task RemoveSelectedAsync(bool deleteLocalFiles)
     {
         var selected = Rows.Where(r => r.IsSelected).ToList();
-        if (selected.Count == 0) { StatusText = "没有勾选任何任务"; return; }
+        if (selected.Count == 0) { SetStatus("没有勾选任何任务"); return; }
         var done = 0; var failed = 0;
         foreach (var row in selected)
         {
@@ -238,7 +261,7 @@ public partial class DownloadsViewModel : ViewModelBase
             catch { failed++; }
         }
         IsMultiSelect = false;   // 批量操作完退出多选，顺带清空勾选
-        StatusText = failed == 0 ? $"已删除 {done} 项" : $"已删除 {done} 项，{failed} 项失败";
+        SetStatus(failed == 0 ? $"已删除 {done} 项" : $"已删除 {done} 项，{failed} 项失败");
     }
 
     [RelayCommand] private void OpenDir()
