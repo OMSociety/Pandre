@@ -41,6 +41,10 @@ public interface IPanClient : IDisposable
     Task MoveAsync(IReadOnlyList<PanFile> files, PanFile? targetDir, CancellationToken ct = default) =>
         throw new NotSupportedException();
 
+    /// <summary>复制到目标目录（targetDir=null 表示根目录）。夸克走 file/copy 异步任务；百度走 PCS method=copy。</summary>
+    Task CopyAsync(IReadOnlyList<PanFile> files, PanFile? targetDir, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
     Task DeleteAsync(IReadOnlyList<PanFile> files, CancellationToken ct = default) =>
         throw new NotSupportedException();
 

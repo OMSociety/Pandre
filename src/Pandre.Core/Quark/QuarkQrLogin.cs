@@ -26,7 +26,7 @@ public sealed class QuarkQrLogin : IQrLoginFlow
     {
         _uopBase = "pr=ucpro&fr=pc&sys=win32&client_id=386&v=1.2&uc_param_str=utprfr&request_id=" + Guid.NewGuid();
         var json = JsonDocument.Parse(await _http.GetStringAsync(
-            "https://uop.quark.cn/cas/ajax/getTokenForQrcodeLogin?" + _uopBase, ct));
+            "https://uop.quark.cn/cas/ajax/getTokenForQrcodeLogin?" + _uopBase, ct).ConfigureAwait(false));
         _token = json.RootElement.GetProperty("data").GetProperty("members").GetProperty("token").GetString()
             ?? throw new PanException("夸克未返回扫码 token");
 
@@ -44,12 +44,24 @@ public sealed class QuarkQrLogin : IQrLoginFlow
 
         string? st = null;
         var deadline = DateTime.Now.AddMinutes(3);
+        var unknownStreak = 0;   // 未知状态码连续计数（透传而非静默吞掉）
+        var netFailStreak = 0;   // 网络抖动连续计数（连续 5 次按超时处理）
         while (DateTime.Now < deadline && st == null)
         {
             ct.ThrowIfCancellationRequested();
-            await Task.Delay(2000, ct);
-            var resp = JsonDocument.Parse(await _http.GetStringAsync(
-                $"https://uop.quark.cn/cas/ajax/getServiceTicketByQrcodeToken?{_uopBase}&token={Uri.EscapeDataString(_token)}", ct));
+            await Task.Delay(2000, ct).ConfigureAwait(false);
+            string body;
+            try
+            {
+                body = await _http.GetStringAsync(
+                    $"https://uop.quark.cn/cas/ajax/getServiceTicketByQrcodeToken?{_uopBase}&token={Uri.EscapeDataString(_token)}", ct).ConfigureAwait(false);
+                netFailStreak = 0;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or System.Net.Sockets.SocketException && ++netFailStreak <= 5)
+            {
+                continue; // 单次网络抖动容错；连续 5 次失败跳出容错，按超时收尾
+            }
+            var resp = JsonDocument.Parse(body);
             var status = resp.RootElement.GetProperty("status").GetInt64();
             switch (status)
             {
@@ -57,11 +69,15 @@ public sealed class QuarkQrLogin : IQrLoginFlow
                     st = resp.RootElement.GetProperty("data").GetProperty("members").GetProperty("service_ticket").GetString();
                     break;
                 case 50004001:
-                    continue;                       // 等待中
+                    unknownStreak = 0;              // 等待中
+                    continue;
                 case 50004002:
                     progress?.Report(QrLoginState.Expired);
                     throw new PanException("二维码已过期，请重新生成");
                 default:
+                    // 未知状态码透传：连续多次未知按错误终止，避免静默空转到超时
+                    if (++unknownStreak >= 3)
+                        throw new PanException($"夸克扫码轮询返回未知状态码 {status}");
                     continue;
             }
         }
@@ -73,7 +89,7 @@ public sealed class QuarkQrLogin : IQrLoginFlow
 
         // 兑换 Cookie（Set-Cookie 进 jar），并从 account/info 拿昵称
         var authBody = await _http.GetStringAsync(
-            $"https://pan.quark.cn/account/info?st={Uri.EscapeDataString(st)}", ct);
+            $"https://pan.quark.cn/account/info?st={Uri.EscapeDataString(st)}", ct).ConfigureAwait(false);
         string? nickname = null;
         try
         {
@@ -84,7 +100,7 @@ public sealed class QuarkQrLogin : IQrLoginFlow
 
         // 补发 __puus（下载链 OSS 回调鉴权需要；此接口同时是会话续期口）
         await _http.GetStringAsync(
-            "https://drive-pc.quark.cn/1/clouddrive/auth/pc/flush?pr=ucpro&fr=pc&sys=win32&uc_param_str=", ct);
+            "https://drive-pc.quark.cn/1/clouddrive/auth/pc/flush?pr=ucpro&fr=pc&sys=win32&uc_param_str=", ct).ConfigureAwait(false);
 
         var cookie = PanHttp.JarToCookieString(_jar, PanHttp.QuarkCookieHosts);
         if (!cookie.Contains("__puus="))
