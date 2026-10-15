@@ -59,7 +59,7 @@
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
                       Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
-              <TextBlock Text="界面功能"/>
+              <TextBlock Text="功能开关"/>
               <TextBlock Classes="secondary" Text="选择哪些功能出现在界面中"/>
             </StackPanel>
             <Button Grid.Column="2" Content="编辑…" VerticalAlignment="Center"
