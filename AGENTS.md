@@ -40,11 +40,11 @@ Pandre.Desktop (Avalonia MVVM) ──> Pandre.Download (aria2 队列)
 
 ## 修改契约
 
-- 改网盘 API（src/Pandre.Core/Baidu/、src/Pandre.Core/Quark/）：先读 docs/开发文档.md 的接口规格（§4 下载链路、§5 接口速查）。所有参数均为抓包实测定死，**不得照常识增删改**；新结论实测后写回同一份文档。
+- 改网盘 API（src/Pandre.Core/Baidu/、src/Pandre.Core/Quark/）：先读 docs/开发文档.md 的接口规格（§3 百度、§4 夸克、§4b 百度分享实测）。所有参数均为抓包实测定死，**不得照常识增删改**；新结论实测后写回同一份文档。
 - 改 UI 样式：只改 src/Pandre.Desktop/App.axaml 的 ThemeDictionaries 资源与控件样式；视图（Views/）内禁止硬编码颜色，一律 DynamicResource。规范细节（圆角、字号、卡片、指示条、禁用浮起位移）见 docs/开发文档.md §7。
 - 改凭据存储（src/Pandre.Core/Credentials.cs）：必须保持 DPAPI 加密落盘；日志与异常消息禁止输出 Cookie 值。原因：Cookie 即账号等价物，明文落盘或进日志等于泄露账号。
 - 改下载链路（src/Pandre.Download/）：aria2 JSON-RPC 全链路必须 `ConfigureAwait(false)`；完成后必须实测一次真实下载入队（见「已知风险区」）。
-- 改启动流程（App.axaml.cs / MainViewModel.InitAsync / AppServices.InitAsync）：改后必须实测一次真实下载入队。原因：登录页重构曾把 AppServices.InitAsync 变成死代码，下载引擎从未启动而 UI 看似正常（提交 6edde4a）。
+- 改启动流程（App.axaml.cs 的 InitSafelyAsync / MainViewModel.InitAsync / AppServices.StartDownloads）：改后必须实测一次真实下载入队。原因：登录页重构曾把当时的 AppServices.InitAsync（现已并入 MainViewModel.InitAsync / AppServices.StartDownloads）变成死代码，下载引擎从未启动而 UI 看似正常（提交 6edde4a）。
 - 改图标或品牌图形：设计稿在 `assets/icons/`（`pandre-app.svg` 是 256 格坐标的应用标识，两个网盘图标是 24 格坐标），代码常量在 `src/Pandre.Desktop/Icons.Brand.cs`，窗口图标是 `src/Pandre.Desktop/Assets/pandre.ico`。三者是同一套图形的三种形态，改一处必须同步另两处，规格与底图约束见 docs/开发文档.md §7。原因：应用标识带 256 格坐标只能靠 Viewbox 缩放，品牌图标要与 `Icons.cs` 的 Fluent 图标混排，`.ico` 的帧格式混排是 Windows 取图的硬要求，各自漏改都会静默退化。
 - 改主题色资源（App.axaml 的 `AccentColor` / `AccentBrush` / `NavSelectedBrush` / `OnAccentBrush`）：这四键在运行时由 `src/Pandre.Desktop/Services/AccentService.cs` 按 Windows 系统强调色覆盖，App.axaml 里的字面色只是读不到系统色时的回退；新增控件绑 `{DynamicResource AccentBrush}`，压在强调色实底上的前景用 `OnAccentBrush`，不要写死颜色。原因：强调色可变之后写死的前景色会失去对比度；且顶层资源键会遮蔽主题字典键，写到顶层就丢掉深浅两套色。
 - 升级 Avalonia 版本：先对照新版 Fluent 主题源码核对 App.axaml 里覆盖的资源键（ComboBox*、Button*、Card* 系列均为内部键，绑定 12.1.4），键名漂移会静默失效。
@@ -72,14 +72,14 @@ Pandre.Desktop (Avalonia MVVM) ──> Pandre.Download (aria2 队列)
 | src/Pandre.Core/Quark/QuarkPanClient.cs | file/download 有 UA 门：Web UA 对 ≥100MB 报 23018 download file size limit，必须用桌面客户端 UA；Cookie 缺 __puus 时 OSS 回调 403 require login [auth miss]，需先调 auth/pc/flush | 读 docs/开发文档.md §4 |
 | src/Pandre.Core/Baidu/BaiduPanClient.cs | 分享创建走 share/pset（path_list 按路径、纯 Cookie），旧 share/set 会 errno=-3；文档规格在 docs/开发文档.md §4b | 改分享前跑 BaiduProbe 验证 |
 | src/Pandre.Core/Baidu/BaiduQrLogin.cs | qrbdusslogin 响应是伪 JSON，bduss/stoken 须用正则从 session 字段抽取；Set-Cookie 里的 BDUSS 对 pan 接口无效 | 读 docs/开发文档.md §4 |
-| src/Pandre.Desktop/Services/AppServices.cs | InitAsync 曾因重构漏被调用，下载引擎从未启动且界面无报错 | 改启动流程后实测下载一次 |
+| src/Pandre.Desktop/Services/AppServices.cs | StartDownloads（历史名 InitAsync）曾因启动链断裂漏被调用，下载引擎从未启动且界面无报错 | 改启动流程后实测下载一次 |
 | src/Pandre.Desktop/App.axaml | 控件观感靠覆盖 Avalonia Fluent 内部资源键实现，键名绑定 12.1.4 | 升级 Avalonia 前先对键名 |
 
 ## 出错怎么办
 
 | 症状（报错里的可检索片段） | 处理 |
 |---|---|
-| 下载加入失败：aria2 引擎未启动 | AppServices.InitAsync 未被调用或 Downloads.Start 未执行；检查 MainViewModel.InitAsync 的调用链（参见提交 6edde4a） |
+| 下载加入失败：aria2 引擎未启动 | AppServices.StartDownloads 未执行或引擎启动失败；检查 MainViewModel.InitAsync 与 AppServices.StartDownloads 的调用链（参见提交 6edde4a） |
 | InvalidCastException: Unable to cast object of type 'Avalonia.Media.ScaleTransform' to type 'Avalonia.Visual' | 动画目标写成了 Transform 对象，见「禁止操作」第 2 条 |
 | 夸克接口 23018 download file size limit | file/download 用了 Web 端 UA；换桌面客户端 UA，规格见 docs/开发文档.md §4 |
 | 夸克下载 403 RequestDeniedByCallback: require login [auth miss] | Cookie 缺 __puus；登录后需调 auth/pc/flush 补发，见 docs/开发文档.md §4 |

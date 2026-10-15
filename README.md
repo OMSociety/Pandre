@@ -8,7 +8,7 @@
 
 - 双盘扫码登录：App 扫码确认即登录，凭据本机 DPAPI 加密存储
 - 双盘文件浏览、全盘搜索、图片缩略图
-- aria2 下载队列：多线程 + 断点续传，夸克已解开桌面端大文件下载链
+- aria2 下载队列：多线程分片下载、暂停 / 继续；任务列表为内存态，应用重启后队列不恢复（已下载的分片文件保留，重新添加同一链接会续传）
 - Fluent / Win11 风格界面：Mica 材质、深浅色主题、无边框圆角窗口
 
 ## 功能（P2）
@@ -35,7 +35,7 @@ dotnet build src/Pandre.Desktop/Pandre.Desktop.csproj -c Release
 
 ## 路线图
 
-- P3：macOS / Linux（beta）、更新检查、托盘
+- P3：多账号切换、macOS / Linux（beta）、更新检查、托盘、CI 三系统构建、发布 GitHub
 
 ## 致谢
 
