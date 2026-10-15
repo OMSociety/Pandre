@@ -16,12 +16,8 @@ public sealed partial class NavItem : CommunityToolkit.Mvvm.ComponentModel.Obser
     public required ViewModelBase Page { get; init; }
 
     [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
-    [CommunityToolkit.Mvvm.ComponentModel.NotifyPropertyChangedFor(nameof(PanelClasses))]
     [CommunityToolkit.Mvvm.ComponentModel.NotifyPropertyChangedFor(nameof(CurrentIcon))]
     private bool _isCurrent;
-
-    /// <summary>当前页面板类名（配合 App.axaml 的 .nav-item/.current 样式）。</summary>
-    public string PanelClasses => IsCurrent ? "nav-item current" : "nav-item";
 
     /// <summary>当前页图标：Filled 优先，回落 Regular。</summary>
     public string CurrentIcon => IsCurrent ? (IconFilled ?? Icon) : Icon;
@@ -49,6 +45,9 @@ public partial class MainViewModel : ViewModelBase
 
     /// <summary>登录伪弹窗是否打开。</summary>
     [ObservableProperty] private bool _isLoginPanelOpen;
+
+    /// <summary>启动初始化失败信息（可见化：窗口底部状态条提示，此前只写调试输出用户看不到）。</summary>
+    [ObservableProperty] private string? _initError;
 
     /// <summary>功能开关伪弹窗是否打开。</summary>
     [ObservableProperty] private bool _isFeaturePanelOpen;
@@ -153,28 +152,33 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>启动时初始化：起下载引擎 + 恢复登录态。</summary>
     public async Task InitAsync()
     {
-        // 引擎启动含同步等待 RPC 就绪，放线程池并行，不占 UI 线程
-        _ = System.Threading.Tasks.Task.Run(AppServices.StartDownloads);
-        await Login.InitAsync();
-        OnSessionChanged();
-        _sessionRestored = true;
-        // 默认停在已登录的网盘页，都没有则停在百度页
-        SelectedNav = Login.Quark.IsLoggedIn && !Login.Baidu.IsLoggedIn ? NavItems[1] : NavItems[0];
+        try
+        {
+            // 引擎启动含同步等待 RPC 就绪，放线程池并行，不占 UI 线程
+            _ = System.Threading.Tasks.Task.Run(AppServices.StartDownloads);
+            await Login.InitAsync();
+            OnSessionChanged();
+            _sessionRestored = true;
+            // 默认停在已登录的网盘页，都没有则停在百度页
+            SelectedNav = Login.Quark.IsLoggedIn && !Login.Baidu.IsLoggedIn ? NavItems[1] : NavItems[0];
 
-        // 自动验收：PANDRE_AUTOCHECK=<页索引> 时启动后直跳该页
-        var auto = System.Environment.GetEnvironmentVariable("PANDRE_AUTOCHECK");
-        if (int.TryParse(auto, out var idx) && idx >= 0 && idx < NavItems.Count)
-            SelectedNav = NavItems[idx];
+            // 自动验收：PANDRE_AUTOCHECK=<页索引> 时启动后直跳该页
+            var auto = System.Environment.GetEnvironmentVariable("PANDRE_AUTOCHECK");
+            if (int.TryParse(auto, out var idx) && idx >= 0 && idx < NavItems.Count)
+                SelectedNav = NavItems[idx];
 
-        // 恢复完成后统一激活当前页（此前 SelectedNav 可能没变化、也可能在凭据挂上前就激活过）
-        _suppressPageActivation = false;
-        if (CurrentPage is PanViewModel current) await current.ActivateAsync();
-        else if (CurrentPage is DownloadsViewModel downloads) downloads.Refresh();
+            // 首次运行没凭据：直接把当前网盘的扫码弹窗弹出来
+            if (LoginCard is { IsLoggedIn: false }) IsLoginPanelOpen = true;
 
-        // 首次运行没凭据：直接把当前网盘的扫码弹窗弹出来
-        if (LoginCard is { IsLoggedIn: false }) IsLoginPanelOpen = true;
-
-        // 自动验收：PANDRE_LOGINPANEL=1 时强制弹开扫码弹窗
-        if (System.Environment.GetEnvironmentVariable("PANDRE_LOGINPANEL") == "1") IsLoginPanelOpen = true;
+            // 自动验收：PANDRE_LOGINPANEL=1 时强制弹开扫码弹窗
+            if (System.Environment.GetEnvironmentVariable("PANDRE_LOGINPANEL") == "1") IsLoginPanelOpen = true;
+        }
+        finally
+        {
+            // 无论成败都复位抑制并激活当前页（异常时此前永不复位，页面激活会全空转）
+            _suppressPageActivation = false;
+            if (CurrentPage is PanViewModel current) await current.ActivateAsync();
+            else if (CurrentPage is DownloadsViewModel downloads) downloads.Refresh();
+        }
     }
 }

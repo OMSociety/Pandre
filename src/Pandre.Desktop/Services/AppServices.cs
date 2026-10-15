@@ -49,14 +49,14 @@ public static class AppServices
         set { var s = LoadSettings(); s.DownloadDir = value; SaveSettings(s); }
     }
 
-    /// <summary>单任务连接数（aria2 --split / --max-connection-per-server），1-64，默认 16，重启 aria2 生效。</summary>
+    /// <summary>单任务连接数（aria2 --split / --max-connection-per-server），1-64，默认 16。引擎在应用启动时固定此值，改后重启应用生效。</summary>
     public static int Aria2Connections
     {
         get => LoadSettings().Aria2Connections is > 0 and <= 64 ? LoadSettings().Aria2Connections!.Value : 16;
         set { var s = LoadSettings(); s.Aria2Connections = Math.Clamp(value, 1, 64); SaveSettings(s); }
     }
 
-    /// <summary>全局同时下载数（aria2 --max-concurrent-downloads），1-20，默认 5，重启 aria2 生效。</summary>
+    /// <summary>全局同时下载数（aria2 --max-concurrent-downloads），1-20，默认 5。引擎在应用启动时固定此值，改后重启应用生效。</summary>
     public static int Aria2MaxConcurrent
     {
         get => LoadSettings().Aria2MaxConcurrent is > 0 and <= 20 ? LoadSettings().Aria2MaxConcurrent!.Value : 5;
@@ -104,20 +104,30 @@ public static class AppServices
     private static string SettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Pandre", "settings.json");
 
+    private static readonly object _settingsGate = new();
     private static Settings? _settingsCache;
 
     private static Settings LoadSettings()
     {
-        if (_settingsCache != null) return _settingsCache;
-        try
+        // 加锁懒初始化：UI 线程与 Task.Run 启动链并发读时，避免各建一份实例互相丢更新
+        lock (_settingsGate)
         {
-            if (File.Exists(SettingsPath))
-                _settingsCache = JsonSerializer.Deserialize<Settings>(File.ReadAllText(SettingsPath)) ?? new Settings();
-            else
+            if (_settingsCache != null) return _settingsCache;
+            try
+            {
+                if (File.Exists(SettingsPath))
+                    _settingsCache = JsonSerializer.Deserialize<Settings>(File.ReadAllText(SettingsPath)) ?? new Settings();
+                else
+                    _settingsCache = new Settings();
+            }
+            catch (Exception ex)
+            {
+                // 坏文件回默认值，留调试痕迹
+                System.Diagnostics.Debug.WriteLine("[AppServices] 设置读取失败，回默认值: " + ex.Message);
                 _settingsCache = new Settings();
+            }
+            return _settingsCache;
         }
-        catch { _settingsCache = new Settings(); }
-        return _settingsCache;
     }
 
     private static void SaveSettings(Settings s)
@@ -128,7 +138,11 @@ public static class AppServices
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
             File.WriteAllText(SettingsPath, JsonSerializer.Serialize(s));
         }
-        catch { /* 写不进就算了 */ }
+        catch (Exception ex)
+        {
+            // 写不进（目录只读/磁盘满等）留调试痕迹，不静默
+            System.Diagnostics.Debug.WriteLine("[AppServices] 设置写盘失败: " + ex.Message);
+        }
     }
 
     /// <summary>把主题应用到当前 Application。</summary>

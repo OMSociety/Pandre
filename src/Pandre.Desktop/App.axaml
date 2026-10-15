@@ -2,7 +2,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Pandre.Desktop.App"
              xmlns:local="using:Pandre.Desktop"
-             xmlns:ac="using:Avalonia.Controls.Chrome"
              RequestedThemeVariant="Default">
 
     <Application.DataTemplates>
@@ -285,25 +284,6 @@
         <!-- 滚动条调细 -->
         <Style Selector="ScrollBar">
             <Setter Property="Width" Value="10"/>
-        </Style>
-
-        <!-- 标题栏窗口按钮 -->
-        <Style Selector="Button.caption-btn">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="CornerRadius" Value="0"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Width" Value="46"/>
-            <Setter Property="Height" Value="40"/>
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
-        </Style>
-        <Style Selector="Button.caption-btn:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#22FFFFFF"/>
-        </Style>
-        <Style Selector="Button.caption-btn.close:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#E81123"/>
-        </Style>
-        <Style Selector="Button.caption-btn.close:pointerover">
-            <Setter Property="Foreground" Value="White"/>
         </Style>
     </Application.Styles>
 </Application>

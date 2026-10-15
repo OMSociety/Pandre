@@ -101,10 +101,15 @@
           <TransitioningContentControl Grid.Row="1" Content="{Binding CurrentPage}"
                                        IsTransitionReversed="{Binding IsNavBack}">
             <TransitioningContentControl.PageTransition>
-              <!-- 浮起进场：旧页 150ms 淡出，新页从下方 20px 淡入上浮 -->
+              <!-- 浮起进场：旧页 150ms 淡出，新页从下方 20px 淡入上浮（后退时从上方落下） -->
               <local:ConnectedFadeTransition />
             </TransitioningContentControl.PageTransition>
           </TransitioningContentControl>
+
+          <!-- 启动初始化失败提示（可见化：只写调试输出用户看不到） -->
+          <TextBlock Grid.Row="2" Classes="tertiary" FontSize="11" Margin="0,8,0,0"
+                     IsVisible="{Binding InitError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     Text="{Binding InitError}" TextWrapping="Wrap"/>
         </Grid>
 
     <!-- 网盘操作伪弹窗（新建/重命名/删除确认/分享/转存/离线/分享管理）：挂窗口级，遮罩盖住侧栏与标题栏。
@@ -211,7 +216,7 @@
             <TextBlock Grid.Column="1" Classes="card-title" Margin="9,0,0,0" VerticalAlignment="Center"
                        Text="{Binding Title}"/>
             <Button Grid.Column="2" Classes="icon-btn" Click="OnCloseLoginPanelClick" ToolTip.Tip="关闭">
-              <PathIcon Data="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4 17.6 5 12 10.6z" Width="11" Height="11"/>
+              <PathIcon Data="{x:Static local:AppIcons.Dismiss}" Width="11" Height="11"/>
             </Button>
           </Grid>
 

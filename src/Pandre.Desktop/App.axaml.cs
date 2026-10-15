@@ -43,6 +43,11 @@ public partial class App : Application
     private static async System.Threading.Tasks.Task InitSafelyAsync(MainViewModel vm)
     {
         try { await vm.InitAsync(); }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
+        catch (System.Exception ex)
+        {
+            // 启动失败可见化：窗口底部状态条提示（此前只写调试输出，用户看不到）
+            System.Diagnostics.Debug.WriteLine(ex);
+            vm.InitError = "启动初始化失败：" + ex.Message;
+        }
     }
 }

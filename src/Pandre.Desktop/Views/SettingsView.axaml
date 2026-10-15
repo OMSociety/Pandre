@@ -15,7 +15,7 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.DarkTheme}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="应用主题"/>
               <TextBlock Classes="secondary" Text="更改应用程序的外观"/>
@@ -33,7 +33,7 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.DarkTheme}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="窗口背景透明材质"/>
               <TextBlock Classes="secondary" Text="设置窗口背景透明效果和透明材质"/>
@@ -57,7 +57,7 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.Settings}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="界面功能"/>
               <TextBlock Classes="secondary" Text="选择哪些功能出现在界面中"/>
@@ -76,7 +76,7 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="下载目录"/>
               <TextBlock Classes="secondary" Text="文件保存到本地的位置"/>
@@ -91,18 +91,21 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="单任务连接数"/>
               <TextBlock Classes="secondary" Text="每个文件拆成几段同时下载（1-64），重启后生效"/>
             </StackPanel>
             <TextBox Grid.Column="2" Text="{Binding Aria2Connections}" MinWidth="80" VerticalAlignment="Center"/>
           </Grid>
+          <TextBlock Classes="tertiary" FontSize="11" Margin="0,-4,0,0"
+                     IsVisible="{Binding Aria2Hint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     Text="{Binding Aria2Hint}" TextWrapping="Wrap"/>
 
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="同时下载数"/>
               <TextBlock Classes="secondary" Text="队列里同时进行的任务个数（1-20），重启后生效"/>
@@ -120,7 +123,7 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,6">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.PandreMarkHollow}"
                       Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1" VerticalAlignment="Center">
               <TextBlock Text="盘多录 Pandre"/>
               <TextBlock Classes="secondary" FontSize="11" Margin="0,2,0,0"
@@ -138,7 +141,7 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,6">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.Person}"
                       Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1" VerticalAlignment="Center">
               <TextBlock Text="OMSociety"/>
               <TextBlock Classes="secondary" FontSize="11" Margin="0,2,0,0" Text="开发者"/>

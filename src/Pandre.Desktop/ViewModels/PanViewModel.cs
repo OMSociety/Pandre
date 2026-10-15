@@ -17,7 +17,7 @@ public partial class FileRowViewModel : ViewModelBase
     public FileRowViewModel(PanFile file)
     {
         File = file;
-        SizeText = file.IsDirectory ? "—" : FmtSize(file.Size);
+        SizeText = file.IsDirectory ? "—" : Fmt.Size(file.Size);
         ModifiedText = file.ModifiedAt?.ToString("yyyy-MM-dd HH:mm") ?? "";
         if (file.ThumbnailUrl != null) _ = LoadThumbAsync(file.ThumbnailUrl);
     }
@@ -36,13 +36,6 @@ public partial class FileRowViewModel : ViewModelBase
         try { Thumb = await ThumbCache.GetAsync(url); }
         catch { /* 缩略图失败不影响列表 */ }
     }
-
-    private static string FmtSize(long b) => b switch    {
-        >= 1L << 30 => $"{b / 1073741824.0:F1} GB",
-        >= 1L << 20 => $"{b / 1048576.0:F1} MB",
-        >= 1L << 10 => $"{b / 1024.0:F1} KB",
-        _ => $"{b} B",
-    };
 }
 
 /// <summary>分享管理弹窗里的一行（一次分享记录）。</summary>
@@ -79,7 +72,7 @@ public partial class PanViewModel : ViewModelBase
 
     // 目录栈（root=null 表示根目录）
     private readonly System.Collections.Generic.List<PanFile?> _dirStack = new() { null };
-    private IReadOnlyList<PanFile> _currentItems = Array.Empty<PanFile>();
+    private bool _isSearchMode; // 当前列表是搜索结果（无父目录，Up 退回目录列表）
 
     public PanViewModel(PanProvider provider, DownloadsViewModel downloads)
     {
@@ -150,6 +143,14 @@ public partial class PanViewModel : ViewModelBase
     [RelayCommand]
     private async Task UpAsync()
     {
+        if (_isSearchMode)
+        {
+            // 搜索结果的「上一级」= 退回目录列表（搜索结果没有父目录；
+            // 此前 CanGoUp=true 与栈深度守卫脱节，点「上一级」无动作）
+            _isSearchMode = false;
+            await LoadCurrentAsync();
+            return;
+        }
         if (_dirStack.Count > 1)
         {
             _dirStack.RemoveAt(_dirStack.Count - 1);
@@ -175,9 +176,9 @@ public partial class PanViewModel : ViewModelBase
         try
         {
             var items = await Client.SearchAsync(SearchText.Trim(), CancellationToken.None);
-            _currentItems = items;
             RebuildRows(items);
             PathText = $"搜索: {SearchText}";
+            _isSearchMode = true;
             CanGoUp = true;
             StatusMessage = $"共 {items.Count} 条结果";
         }
@@ -217,9 +218,9 @@ public partial class PanViewModel : ViewModelBase
         {
             var dir = _dirStack[^1];
             var items = await Client.ListAsync(dir, CancellationToken.None);
-            _currentItems = items;
             RebuildRows(items);
             PathText = _dirStack.Count <= 1 ? "/" : "/ " + string.Join(" / ", _dirStack.Skip(1).Select(d => d?.Name ?? "?"));
+            _isSearchMode = false;
             CanGoUp = _dirStack.Count > 1;
             StatusMessage = $"共 {items.Count} 项";
         }

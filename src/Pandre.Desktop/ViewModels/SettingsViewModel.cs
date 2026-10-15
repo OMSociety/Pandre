@@ -43,6 +43,9 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _aria2Connections = "16";
     [ObservableProperty] private string _aria2MaxConcurrent = "5";
 
+    /// <summary>数字输入校验提示（解析失败时显示，此前静默不保存用户无感知）。</summary>
+    [ObservableProperty] private string? _aria2Hint;
+
     // 功能开关已挪到独立的「界面功能开关」面板（FeaturePanelViewModel），
     // 设置页只留一个入口按钮，避免两处各持一份状态。
 
@@ -76,13 +79,24 @@ public partial class SettingsViewModel : ViewModelBase
 
     partial void OnAria2ConnectionsChanged(string value)
     {
-        if (int.TryParse(value, out var n) && n != AppServices.Aria2Connections)
-            AppServices.Aria2Connections = n;
+        // 解析失败不静默：给出可见提示（此前静默不保存，用户不知道改动没生效）
+        if (int.TryParse(value, out var n))
+        {
+            Aria2Hint = n is > 0 and <= 64 ? null : "连接数需在 1-64 之间";
+            if (n != AppServices.Aria2Connections && n is > 0 and <= 64)
+                AppServices.Aria2Connections = n;
+        }
+        else Aria2Hint = "连接数需为整数（当前改动未保存）";
     }
 
     partial void OnAria2MaxConcurrentChanged(string value)
     {
-        if (int.TryParse(value, out var n) && n != AppServices.Aria2MaxConcurrent)
-            AppServices.Aria2MaxConcurrent = n;
+        if (int.TryParse(value, out var n))
+        {
+            Aria2Hint = n is > 0 and <= 20 ? null : "同时下载数需在 1-20 之间";
+            if (n != AppServices.Aria2MaxConcurrent && n is > 0 and <= 20)
+                AppServices.Aria2MaxConcurrent = n;
+        }
+        else Aria2Hint = "同时下载数需为整数（当前改动未保存）";
     }
 }

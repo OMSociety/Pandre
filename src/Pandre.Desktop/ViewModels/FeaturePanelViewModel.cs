@@ -27,8 +27,8 @@ public partial class FeatureToggleViewModel : ViewModelBase
 }
 
 /// <summary>
-/// 界面功能开关面板：列出可显示/隐藏的功能，改动立即生效并持久化。
-/// 提示文案由 IsVisible 绑标题，避免整块开关同步刷新。
+/// 界面功能开关面板：列出可显示/隐藏的功能，改动立即写盘并经
+/// AppServices.FeatureFlagsChanged 广播各页面刷新工具栏可见性。
 /// </summary>
 public sealed class FeaturePanelViewModel : ViewModelBase
 {

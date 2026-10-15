@@ -30,9 +30,9 @@ public partial class DownloadRowViewModel : ViewModelBase
         var t = Task;
         Progress = t.TotalBytes > 0 ? t.Progress * 100.0 : 0;
         SpeedText = t.Status == DownloadStatus.Downloading && t.SpeedBps > 0
-            ? FmtSize(t.SpeedBps) + "/s" : "";
+            ? Fmt.Size(t.SpeedBps) + "/s" : "";
         SizeText = t.TotalBytes > 0
-            ? $"{FmtSize(t.CompletedBytes)} / {FmtSize(t.TotalBytes)}" : "";
+            ? $"{Fmt.Size(t.CompletedBytes)} / {Fmt.Size(t.TotalBytes)}" : "";
         StatusText = t.Status switch
         {
             DownloadStatus.Queued => "排队",
@@ -46,14 +46,6 @@ public partial class DownloadRowViewModel : ViewModelBase
         CanPause = t.Status is DownloadStatus.Downloading or DownloadStatus.Queued;
         CanResume = t.Status == DownloadStatus.Paused;
     }
-
-    internal static string FmtSize(long b) => b switch
-    {
-        >= 1L << 30 => $"{b / 1073741824.0:F1} GB",
-        >= 1L << 20 => $"{b / 1048576.0:F1} MB",
-        >= 1L << 10 => $"{b / 1024.0:F1} KB",
-        _ => $"{b} B",
-    };
 }
 
 /// <summary>云端离线下载任务的一行（只读展示）。</summary>
@@ -65,7 +57,7 @@ public sealed class OfflineTaskRowViewModel : ViewModelBase
     public string Name => Task.Name;
     public string SavePath => Task.SavePath;
     public string SizeText => Task.SizeBytes > 0
-        ? $"{DownloadRowViewModel.FmtSize(Task.FinishedBytes)} / {DownloadRowViewModel.FmtSize(Task.SizeBytes)}" : "";
+        ? $"{Fmt.Size(Task.FinishedBytes)} / {Fmt.Size(Task.SizeBytes)}" : "";
     public string StatusText => Task.Status switch
     {
         0 => "完成",
@@ -114,7 +106,7 @@ public partial class DownloadsViewModel : ViewModelBase
         foreach (var t in tasks) Rows.Add(new DownloadRowViewModel(t));
     }
 
-    /// <summary>拉取云端离线下载任务（目前只百度支持，探针实测 6/6）。</summary>
+    /// <summary>拉取云端离线下载任务（目前只百度支持）。</summary>
     [RelayCommand]
     private async System.Threading.Tasks.Task RefreshOfflineAsync()
     {
