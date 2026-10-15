@@ -58,22 +58,30 @@ public sealed class Aria2Engine : IDisposable
 
     private Process SpawnProcess(string exe, int port, int connections, int maxConcurrent)
     {
-        var proc = new Process
+        var startInfo = new ProcessStartInfo(exe,
+            $"--enable-rpc --rpc-listen-all=false --rpc-listen-port={port} --rpc-secret={_secret} " +
+            $"--max-connection-per-server={connections} --split={connections} --max-concurrent-downloads={maxConcurrent} " +
+            "--continue=true --allow-overwrite=true " +
+            "--max-tries=5 --retry-wait=2 " +
+            // 只走 IPv4：本机 DNS 对 d.pcs.baidu.com 这类 CDN 会返回 AAAA，但 IPv6 没有出口路由，
+            // aria2 一旦选中 AAAA 就直接以 "unreachable network" 失败、不会回退 IPv4（实测）。
+            "--disable-ipv6=true " +
+            "--file-allocation=none --summary-interval=0 --show-console-readout=false")
         {
-            StartInfo = new ProcessStartInfo(exe,
-                $"--enable-rpc --rpc-listen-all=false --rpc-listen-port={port} --rpc-secret={_secret} " +
-                $"--max-connection-per-server={connections} --split={connections} --max-concurrent-downloads={maxConcurrent} " +
-                "--continue=true --allow-overwrite=true " +
-                "--max-tries=5 --retry-wait=2 " +
-                "--file-allocation=none --summary-interval=0 --show-console-readout=false")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            },
-            EnableRaisingEvents = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
+
+        // 不继承系统代理：下载链都是境内直连（实测直连 IPv4 通、且比经代理快一个量级），
+        // 而经代理时 aria2 的 WinTLS 在并发连接上会随机报 "SSL/TLS handshake failure"。
+        foreach (var name in new[] { "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY" })
+        {
+            startInfo.Environment.Remove(name);
+        }
+
+        var proc = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         proc.Start();
         proc.BeginOutputReadLine();   // 丢弃输出，防管道堵死
         // stderr 留诊断：不堵管道的同时写调试输出，aria2 启动失败/下载错误可查
