@@ -63,8 +63,14 @@ public static class AppServices
         set { var s = LoadSettings(); s.Aria2MaxConcurrent = Math.Clamp(value, 1, 20); SaveSettings(s); }
     }
 
-    // ===== 功能开关（全局：百度与夸克同时生效） =====
+    /// <summary>标题栏关闭按钮行为：exit（退出应用）/ tray（最小化到托盘，应用继续在后台运行）。默认 tray。</summary>
+    public static string CloseBehavior
+    {
+        get => LoadSettings().CloseBehavior == "exit" ? "exit" : "tray";
+        set { var s = LoadSettings(); s.CloseBehavior = value == "exit" ? "exit" : "tray"; SaveSettings(s); }
+    }
 
+    // ===== 功能开关（全局：百度与夸克同时生效） =====
     /// <summary>功能开关变化后通知各页面刷新可见性。设置页改动时触发。</summary>
     public static event Action? FeatureFlagsChanged;
 
@@ -99,6 +105,7 @@ public static class AppServices
         public bool? ShowSaveShare { get; set; }
         public bool? ShowOfflineDownload { get; set; }
         public bool? ShowShareManage { get; set; }
+        public string? CloseBehavior { get; set; }
     }
 
     private static string SettingsPath => Path.Combine(

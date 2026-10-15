@@ -4,6 +4,21 @@
              xmlns:local="using:Pandre.Desktop"
              RequestedThemeVariant="Default">
 
+    <!-- 托盘图标：常驻通知区域，窗口隐藏后应用继续在后台跑（挂载点为 Application 上的附加属性 TrayIcon.Icons） -->
+    <TrayIcon.Icons>
+        <TrayIcons>
+            <TrayIcon Icon="/Assets/pandre.ico" ToolTipText="盘多录 Pandre" Clicked="OnTrayIconClicked">
+                <TrayIcon.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="显示主界面" Click="OnTrayShowClicked"/>
+                        <NativeMenuItemSeparator/>
+                        <NativeMenuItem Header="退出应用" Click="OnTrayExitClicked"/>
+                    </NativeMenu>
+                </TrayIcon.Menu>
+            </TrayIcon>
+        </TrayIcons>
+    </TrayIcon.Icons>
+
     <Application.DataTemplates>
         <local:ViewLocator />
     </Application.DataTemplates>

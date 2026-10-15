@@ -47,6 +47,23 @@
               </ComboBox.ItemTemplate>
             </ComboBox>
           </Grid>
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.Dismiss}"
+                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="关闭按钮行为"/>
+              <TextBlock Classes="secondary" Text="点击标题栏关闭按钮时执行的操作"/>
+            </StackPanel>
+            <ComboBox Grid.Column="2" ItemsSource="{Binding CloseBehaviorOptions}" SelectedItem="{Binding SelectedCloseBehavior}"
+                      MinWidth="170" VerticalAlignment="Center">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:CloseBehaviorOption">
+                  <TextBlock Text="{Binding Label}"/>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </Grid>
         </StackPanel>
       </Border>
 

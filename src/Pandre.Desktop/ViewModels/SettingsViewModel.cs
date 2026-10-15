@@ -19,6 +19,13 @@ public sealed class MaterialOption
     public override string ToString() => Label;
 }
 
+public sealed class CloseBehaviorOption
+{
+    public required string Key { get; init; }     // exit/tray
+    public required string Label { get; init; }
+    public override string ToString() => Label;
+}
+
 public partial class SettingsViewModel : ViewModelBase
 {
     public List<ThemeOption> ThemeOptions { get; } = new()
@@ -37,8 +44,15 @@ public partial class SettingsViewModel : ViewModelBase
         new() { Key = "None", Label = "None" },
     };
 
+    public List<CloseBehaviorOption> CloseBehaviorOptions { get; } = new()
+    {
+        new() { Key = "exit", Label = "退出应用" },
+        new() { Key = "tray", Label = "最小化到托盘" },
+    };
+
     [ObservableProperty] private ThemeOption? _selectedTheme;
     [ObservableProperty] private MaterialOption? _selectedMaterial;
+    [ObservableProperty] private CloseBehaviorOption? _selectedCloseBehavior;
     [ObservableProperty] private string _downloadDir = "";
     [ObservableProperty] private string _aria2Connections = "16";
     [ObservableProperty] private string _aria2MaxConcurrent = "5";
@@ -56,6 +70,8 @@ public partial class SettingsViewModel : ViewModelBase
         SelectedTheme = ThemeOptions.Find(o => o.Key == theme) ?? ThemeOptions[0];
         var material = AppServices.Material;
         SelectedMaterial = MaterialOptions.Find(o => o.Key == material) ?? MaterialOptions[0];
+        var closeBehavior = AppServices.CloseBehavior;
+        SelectedCloseBehavior = CloseBehaviorOptions.Find(o => o.Key == closeBehavior) ?? CloseBehaviorOptions[1];
         DownloadDir = AppServices.DownloadDir;
         Aria2Connections = AppServices.Aria2Connections.ToString();
         Aria2MaxConcurrent = AppServices.Aria2MaxConcurrent.ToString();
@@ -69,6 +85,11 @@ public partial class SettingsViewModel : ViewModelBase
     partial void OnSelectedMaterialChanged(MaterialOption? value)
     {
         if (value != null && value.Key != AppServices.Material) AppServices.Material = value.Key;
+    }
+
+    partial void OnSelectedCloseBehaviorChanged(CloseBehaviorOption? value)
+    {
+        if (value != null && value.Key != AppServices.CloseBehavior) AppServices.CloseBehavior = value.Key;
     }
 
     partial void OnDownloadDirChanged(string value)

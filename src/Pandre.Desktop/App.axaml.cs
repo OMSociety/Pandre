@@ -40,6 +40,15 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
+    /// <summary>托盘图标左键单击：唤回主窗口。</summary>
+    private void OnTrayIconClicked(object? sender, System.EventArgs e) => TrayService.ShowMainWindow();
+
+    /// <summary>托盘菜单「显示主界面」。</summary>
+    private void OnTrayShowClicked(object? sender, System.EventArgs e) => TrayService.ShowMainWindow();
+
+    /// <summary>托盘菜单「退出应用」：真正退出（下载与客户端在 Exit 里收尾）。</summary>
+    private void OnTrayExitClicked(object? sender, System.EventArgs e) => TrayService.RequestExit();
+
     private static async System.Threading.Tasks.Task InitSafelyAsync(MainViewModel vm)
     {
         try { await vm.InitAsync(); }
