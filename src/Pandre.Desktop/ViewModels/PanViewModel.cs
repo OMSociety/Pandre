@@ -17,7 +17,7 @@ public partial class FileRowViewModel : ViewModelBase
     public FileRowViewModel(PanFile file)
     {
         File = file;
-        SizeText = file.IsDirectory ? "—" : FmtSize(file.Size);
+        SizeText = file.IsDirectory ? "—" : Fmt.Size(file.Size);
         ModifiedText = file.ModifiedAt?.ToString("yyyy-MM-dd HH:mm") ?? "";
         if (file.ThumbnailUrl != null) _ = LoadThumbAsync(file.ThumbnailUrl);
     }
@@ -36,13 +36,6 @@ public partial class FileRowViewModel : ViewModelBase
         try { Thumb = await ThumbCache.GetAsync(url); }
         catch { /* 缩略图失败不影响列表 */ }
     }
-
-    private static string FmtSize(long b) => b switch    {
-        >= 1L << 30 => $"{b / 1073741824.0:F1} GB",
-        >= 1L << 20 => $"{b / 1048576.0:F1} MB",
-        >= 1L << 10 => $"{b / 1024.0:F1} KB",
-        _ => $"{b} B",
-    };
 }
 
 /// <summary>分享管理弹窗里的一行（一次分享记录）。</summary>
@@ -79,7 +72,7 @@ public partial class PanViewModel : ViewModelBase
 
     // 目录栈（root=null 表示根目录）
     private readonly System.Collections.Generic.List<PanFile?> _dirStack = new() { null };
-    private IReadOnlyList<PanFile> _currentItems = Array.Empty<PanFile>();
+    private bool _isSearchMode; // 当前列表是搜索结果（无父目录，Up 退回目录列表）
 
     public PanViewModel(PanProvider provider, DownloadsViewModel downloads)
     {
@@ -90,7 +83,23 @@ public partial class PanViewModel : ViewModelBase
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(HasSingleSelection));
         };
+        // 功能开关在设置页改动后，本页工具栏可见性要跟着变
+        AppServices.FeatureFlagsChanged += OnFeatureFlagsChanged;
     }
+
+    private void OnFeatureFlagsChanged()
+    {
+        OnPropertyChanged(nameof(ShowSaveShareButton));
+        OnPropertyChanged(nameof(ShowOfflineDownloadButton));
+        OnPropertyChanged(nameof(ShowShareManageButton));
+    }
+
+    /// <summary>「转存」按钮可见性（全局开关）。</summary>
+    public bool ShowSaveShareButton => AppServices.ShowSaveShare;
+    /// <summary>「离线下载」按钮可见性（全局开关 + 仅百度支持）。</summary>
+    public bool ShowOfflineDownloadButton => AppServices.ShowOfflineDownload && IsBaidu;
+    /// <summary>「分享管理」按钮可见性（全局开关）。</summary>
+    public bool ShowShareManageButton => AppServices.ShowShareManage;
 
     public string Title => _provider == PanProvider.Baidu ? "百度网盘" : "夸克网盘";
     /// <summary>离线下载仅百度支持。</summary>
@@ -134,6 +143,14 @@ public partial class PanViewModel : ViewModelBase
     [RelayCommand]
     private async Task UpAsync()
     {
+        if (_isSearchMode)
+        {
+            // 搜索结果的「上一级」= 退回目录列表（搜索结果没有父目录；
+            // 此前 CanGoUp=true 与栈深度守卫脱节，点「上一级」无动作）
+            _isSearchMode = false;
+            await LoadCurrentAsync();
+            return;
+        }
         if (_dirStack.Count > 1)
         {
             _dirStack.RemoveAt(_dirStack.Count - 1);
@@ -159,9 +176,9 @@ public partial class PanViewModel : ViewModelBase
         try
         {
             var items = await Client.SearchAsync(SearchText.Trim(), CancellationToken.None);
-            _currentItems = items;
             RebuildRows(items);
             PathText = $"搜索: {SearchText}";
+            _isSearchMode = true;
             CanGoUp = true;
             StatusMessage = $"共 {items.Count} 条结果";
         }
@@ -201,9 +218,9 @@ public partial class PanViewModel : ViewModelBase
         {
             var dir = _dirStack[^1];
             var items = await Client.ListAsync(dir, CancellationToken.None);
-            _currentItems = items;
             RebuildRows(items);
             PathText = _dirStack.Count <= 1 ? "/" : "/ " + string.Join(" / ", _dirStack.Skip(1).Select(d => d?.Name ?? "?"));
+            _isSearchMode = false;
             CanGoUp = _dirStack.Count > 1;
             StatusMessage = $"共 {items.Count} 项";
         }
@@ -446,17 +463,23 @@ public partial class PanViewModel : ViewModelBase
 
     [RelayCommand]
     private void SaveShare() => OpenDialog(PanDialogKind.TwoInput, "转存分享链接",
-        wm1: "夸克分享链接（https://pan.quark.cn/s/…）", wm2: "提取码（链接含 pwd 可留空）",
+        wm1: "夸克链接 / 百度链接（/s/1… 或 share/init?surl=…）",
+        wm2: "提取码（链接含 pwd 可留空）",
         action: async (url, pwd) =>
         {
             if (string.IsNullOrWhiteSpace(url)) return;
             var link = url.Trim();
             var code = pwd.Trim();
-            if (code.Length == 0 && link.Contains("?pwd="))
-                code = link.Split("?pwd=")[1].Split('&')[0];
-            var r = await Client.SaveShareAsync(link, code.Length == 0 ? null : code, _dirStack[^1]);
+            // 提取码留空时从链接里取：百度两种形态都出现在 URL 里（/s/xxx?pwd= 与
+            // share/init?surl=xxx&pwd=，后者是网页「复制链接」的实际形态，pwd 前是 & 不是 ?）
+            if (code.Length == 0)
+            {
+                var mp = System.Text.RegularExpressions.Regex.Match(link, @"[?&]pwd=([^&\s]+)");
+                if (mp.Success) code = mp.Groups[1].Value;
+            }
+            var res = await Client.SaveShareAsync(link, code.Length == 0 ? null : code, _dirStack[^1]);
             await LoadCurrentAsync();
-            StatusMessage = $"已转存 {r.SavedCount} 项 → {r.SavedToDirName}";
+            StatusMessage = $"已转存 {res.SavedCount} 项 → {res.SavedToDirName}";
         });
 
     [RelayCommand]

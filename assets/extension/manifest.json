@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Pandre 盘多录 · 网盘下载接管",
+  "version": "1.0.0",
+  "description": "把百度网盘 / 夸克网盘网页版里选中的文件直接交给本机 Pandre（盘多录）下载。",
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["*://drive.quark.cn/*"],
+      "js": ["config.js", "content-shared.js", "content-quark.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://pan.baidu.com/*"],
+      "js": ["config.js", "content-shared.js", "content-baidu.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

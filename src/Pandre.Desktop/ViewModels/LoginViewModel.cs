@@ -25,7 +25,7 @@ public partial class LoginCardViewModel : ViewModelBase
     public string Title { get; }
 
     /// <summary>弹窗标题图标（与页面图标一致）。</summary>
-    public string Icon => _provider == PanProvider.Baidu ? AppIcons.CloudFilled : AppIcons.CloudSyncFilled;
+    public string Icon => _provider == PanProvider.Baidu ? AppIcons.BaiduNetdisk : AppIcons.QuarkNetdisk;
 
     /// <summary>扫码提示语。</summary>
     public string ScanHint => _provider == PanProvider.Baidu
@@ -97,7 +97,7 @@ public partial class LoginCardViewModel : ViewModelBase
             var info = await client.GetAccountAsync(_waitCts.Token);
             IsLoggedIn = true;
             AccountName = info.Nickname ?? cred.Nickname ?? "已登录";
-            AccountText = $"{AccountName} · {FmtSize(info.UsedBytes)} / {FmtSize(info.TotalBytes)}";
+            AccountText = $"{AccountName} · {Fmt.Size(info.UsedBytes)} / {Fmt.Size(info.TotalBytes)}";
             StatusText = "已登录";
             QrImage = null;
 
@@ -119,11 +119,9 @@ public partial class LoginCardViewModel : ViewModelBase
     [RelayCommand]
     private void Cancel()
     {
+        // 只发取消：状态与收尾统一由 StartLoginAsync 的 catch（「已取消」）/finally（IsBusy、Dispose）
+        // 处理。此处置 IsBusy=false 会在流程收尾前提前放出「扫码登录」按钮，造成重入。
         _waitCts?.Cancel();
-        _flow?.Dispose();
-        QrImage = null;
-        StatusText = "已取消";
-        IsBusy = false;
     }
 
     [RelayCommand]
@@ -150,7 +148,7 @@ public partial class LoginCardViewModel : ViewModelBase
             var info = await client.GetAccountAsync();
             IsLoggedIn = true;
             AccountName = info.Nickname ?? cred.Nickname ?? "已登录";
-            AccountText = $"{AccountName} · {FmtSize(info.UsedBytes)} / {FmtSize(info.TotalBytes)}";
+            AccountText = $"{AccountName} · {Fmt.Size(info.UsedBytes)} / {Fmt.Size(info.TotalBytes)}";
             StatusText = "已登录";
         }
         catch (PanException ex) when (ex.IsAuthExpired)
@@ -167,14 +165,6 @@ public partial class LoginCardViewModel : ViewModelBase
             System.Diagnostics.Debug.WriteLine(ex);
         }
     }
-
-    private static string FmtSize(long b) => b switch
-    {
-        >= 1L << 30 => $"{b / 1073741824.0:F1} GB",
-        >= 1L << 20 => $"{b / 1048576.0:F1} MB",
-        >= 1L << 10 => $"{b / 1024.0:F1} KB",
-        _ => $"{b} B",
-    };
 
     public event Action? SessionChanged;
     private void RaiseSessionChanged() => SessionChanged?.Invoke();

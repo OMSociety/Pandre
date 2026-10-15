@@ -6,8 +6,9 @@ namespace Pandre.Core.Quark;
 
 /// <summary>
 /// 夸克网盘 Cookie 接口客户端。
-/// 关键口径（P0.5 实测）：file/download 必须用桌面客户端 UA 破 100MB 网页限（23018）；
-/// 下载链 OSS 回调要求 Cookie 含 __puus（扫码后由 auth/pc/flush 补发）。
+/// 关键口径（P0.5 实测 + REA 逆向夸克桌面端 3.24.0 renderer）：file/download 必须用桌面客户端 UA 破 100MB 网页限（23018）；
+/// 下载链 OSS 回调要求 Cookie 含 __puus（扫码后由 auth/pc/flush 补发）；
+/// 全量 clouddrive 端点（含 share/sharepage/save）统一挂 drive-pc.quark.cn，无 drive.quark.cn 主机。
 /// </summary>
 public sealed class QuarkPanClient : IPanClient
 {
@@ -18,6 +19,15 @@ public sealed class QuarkPanClient : IPanClient
     private HttpClient? _http;
     private string? _nickname;
 
+    /// <summary>下载链有效期经验值：dlink 有时效，过期需重取。</summary>
+    private static readonly TimeSpan DownloadLinkTtl = TimeSpan.FromHours(5);
+    /// <summary>异步任务轮询超时上限（移动/删除/转存/分享/复制共用）。</summary>
+    private static readonly TimeSpan TaskWaitTimeout = TimeSpan.FromMinutes(10);
+    /// <summary>分片上传重试参数（与客户端一致：3 次尝试、间隔 500ms；每次尝试独立超时）。</summary>
+    private const int PartAttempts = 3;
+    private static readonly TimeSpan PartRetryDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan PartTimeout = TimeSpan.FromSeconds(120);
+
     public PanProvider Provider => PanProvider.Quark;
     public bool IsAuthenticated => _http != null;
 
@@ -25,6 +35,7 @@ public sealed class QuarkPanClient : IPanClient
     {
         if (credential.Provider != PanProvider.Quark)
             throw new ArgumentException("凭据提供方不匹配", nameof(credential));
+        Dispose(); // 重复 Attach 先释放旧客户端，避免泄漏
         _jar = PanHttp.SeedCookies(credential.Cookie, PanHttp.QuarkCookieHosts);
         _http = PanHttp.CreateClient(_jar, PanHttp.BrowserUa);
         _http.DefaultRequestHeaders.Referrer = new Uri("https://pan.quark.cn/");
@@ -38,16 +49,21 @@ public sealed class QuarkPanClient : IPanClient
 
     private static void ThrowIfNotOk(JsonElement root, string op)
     {
-        var status = root.TryGetProperty("status", out var s) ? s.GetInt32() : 0;
-        var code = root.TryGetProperty("code", out var c) ? c.GetInt32() : 0;
+        var hasStatus = root.TryGetProperty("status", out var s);
+        var hasCode = root.TryGetProperty("code", out var c);
+        var status = hasStatus ? s.GetInt32() : 0;
+        var code = hasCode ? c.GetInt32() : 0;
         if (status != 200 || code != 0)
-            throw new PanException($"夸克{op}失败 status={status} code={code}", code);
+        {
+            var missing = !hasStatus || !hasCode ? "（响应缺 status/code 包络字段）" : "";
+            throw new PanException($"夸克{op}失败 status={status} code={code}{missing}", code);
+        }
     }
 
     /// <summary>配额与会员信息走 member 接口（quota/use 是加密的流量包扣减口，不是容量查询）。</summary>
     public async Task<PanAccountInfo> GetAccountAsync(CancellationToken ct = default)
     {
-        var root = JsonDocument.Parse(await Http.GetStringAsync($"{DriveBase}/member?{Q}", ct)).RootElement;
+        var root = JsonDocument.Parse(await Http.GetStringAsync($"{DriveBase}/member?{Q}", ct).ConfigureAwait(false)).RootElement;
         ThrowIfNotOk(root, "配额查询");
         var d = root.GetProperty("data");
         var memberType = d.TryGetProperty("member_type", out var mt) ? mt.GetString() : null;
@@ -66,7 +82,7 @@ public sealed class QuarkPanClient : IPanClient
         for (var page = 1; ; page++)
         {
             var url = $"{DriveBase}/file/sort?{Q}&pdir_fid={pdirFid}&_page={page}&_size=100&_fetch_total=1&_sort=file_type:asc,updated_at:desc";
-            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct)).RootElement;
+            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct).ConfigureAwait(false)).RootElement;
             ThrowIfNotOk(root, "列目录");
             var list = root.GetProperty("data").GetProperty("list");
             if (list.GetArrayLength() == 0) break;
@@ -87,7 +103,7 @@ public sealed class QuarkPanClient : IPanClient
         for (var page = 1; ; page++)
         {
             var url = $"{DriveBase}/file/search?{Q}&q={Uri.EscapeDataString(keyword)}&_page={page}&_size=100&_fetch_total=1&_is_hl=1";
-            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct)).RootElement;
+            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct).ConfigureAwait(false)).RootElement;
             ThrowIfNotOk(root, "搜索");
             var list = root.GetProperty("data").GetProperty("list");
             if (list.GetArrayLength() == 0) break;
@@ -104,7 +120,7 @@ public sealed class QuarkPanClient : IPanClient
     public async Task<IReadOnlyList<PanDownloadLink>> GetDownloadLinksAsync(
         IReadOnlyList<PanFile> files, CancellationToken ct = default)
     {
-        await EnsurePuusAsync(ct);
+        await EnsurePuusAsync(ct).ConfigureAwait(false);
         var cookie = ExportCookie()!;
 
         // 桌面 UA 是破 23018 的关键；本次请求用独立 HttpRequestMessage 换 UA
@@ -117,7 +133,8 @@ public sealed class QuarkPanClient : IPanClient
         req.Headers.TryAddWithoutValidation("User-Agent", PanHttp.QuarkDesktopUa);
         req.Headers.TryAddWithoutValidation("Origin", "https://pan.quark.cn");
 
-        var root = JsonDocument.Parse(await (await Http.SendAsync(req, ct)).Content.ReadAsStringAsync(ct)).RootElement;
+        var root = JsonDocument.Parse(await (await Http.SendAsync(req, ct).ConfigureAwait(false))
+            .Content.ReadAsStringAsync(ct).ConfigureAwait(false)).RootElement;
         ThrowIfNotOk(root, "取下载链");
 
         var headers = new Dictionary<string, string>
@@ -126,45 +143,63 @@ public sealed class QuarkPanClient : IPanClient
             ["Cookie"] = cookie,
         };
         var links = new List<PanDownloadLink>();
-        var byId = files.ToDictionary(f => f.Id);
+        var byId = new Dictionary<string, PanFile>();
+        foreach (var f in files)
+            byId[f.Id] = f; // 重 Id 允许（UI 可能有重复行），取后者
         foreach (var it in root.GetProperty("data").EnumerateArray())
         {
             var fid = it.GetProperty("fid").GetString()!;
             var durl = it.GetProperty("download_url").GetString()!;
             if (byId.TryGetValue(fid, out var file))
-                links.Add(new PanDownloadLink(file, durl, headers, DateTimeOffset.Now.AddHours(5)));
+                links.Add(new PanDownloadLink(file, durl, headers, DateTimeOffset.Now + DownloadLinkTtl));
         }
+        if (links.Count < files.Count)
+            throw new PanException($"夸克取下载链不完整：请求 {files.Count} 个，仅返回 {links.Count} 个");
         return links;
+    }
+
+    /// <summary>按 fid 解析下载链：名字/大小用页面给出的值（下载接口只认 fid，无需先发 detail 请求）。</summary>
+    public async Task<IReadOnlyList<PanDownloadLink>> GetDownloadLinksByIdsAsync(
+        IReadOnlyList<PanRemoteFileRef> refs, CancellationToken ct = default)
+    {
+        var files = refs.Select(r => new PanFile(
+            r.Id,
+            "/" + (r.Name ?? r.Id),
+            r.Name ?? r.Id,
+            r.Size,
+            false, null, null, PanProvider.Quark)).ToArray();
+        return await GetDownloadLinksAsync(files, ct).ConfigureAwait(false);
     }
 
     /// <summary>确保 Cookie 里有 __puus：没有就调 flush 让服务端补发（Set-Cookie 自动进 jar）。</summary>
     private async Task EnsurePuusAsync(CancellationToken ct)
     {
         if (ExportCookie()!.Contains("__puus=")) return;
-        await Http.GetStringAsync($"{DriveBase}/auth/pc/flush?{Q}", ct);
+        await Http.GetStringAsync($"{DriveBase}/auth/pc/flush?{Q}", ct).ConfigureAwait(false);
         if (!ExportCookie()!.Contains("__puus="))
             throw new PanException("flush 未补发 __puus，下载将不可用");
     }
 
-    // ============ P2：管理与分享（规格逆向自 QuarkPanTool / QuarkPan，见 docs/开发文档.md §4） ============
+    // ============ P2：管理与分享（规格逆向自 QuarkPanTool / QuarkPan / 夸克桌面端，见 docs/开发文档.md §4） ============
 
     /// <summary>POST JSON 并取 data（包络 status=200/code=0 校验）。</summary>
     private async Task<JsonElement> PostJsonAsync(string path, object body, string op, CancellationToken ct)
     {
         var resp = await Http.PostAsync($"{DriveBase}/{path}?{Q}",
-            new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"), ct);
-        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct)).RootElement;
+            new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"), ct).ConfigureAwait(false);
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false)).RootElement;
         ThrowIfNotOk(root, op);
         return root.TryGetProperty("data", out var d) ? d.Clone() : default;
     }
 
-    /// <summary>轮询异步任务直到成功/失败。data.status：0待 1跑 2成 3败。</summary>
+    /// <summary>轮询异步任务直到成功/失败。data.status：0待 1跑 2成 3败。超时上限 10 分钟。</summary>
     private async Task<JsonElement> WaitTaskAsync(string taskId, string op, CancellationToken ct)
     {
+        var deadline = DateTime.UtcNow + TaskWaitTimeout;
         for (var i = 0; ; i++)
         {
             var root = JsonDocument.Parse(await Http.GetStringAsync(
-                $"{DriveBase}/task?{Q}&task_id={taskId}&retry_index={i}", ct)).RootElement;
+                $"{DriveBase}/task?{Q}&task_id={taskId}&retry_index={i}", ct).ConfigureAwait(false)).RootElement;
             ThrowIfNotOk(root, op);
             var data = root.GetProperty("data");
             var status = data.GetProperty("status").GetInt32();
@@ -175,7 +210,9 @@ public sealed class QuarkPanClient : IPanClient
                 var code = data.TryGetProperty("code", out var c) ? c.GetInt64() : (long?)null;
                 throw new PanException($"夸克{op}任务失败 code={code} {msg}", code);
             }
-            await Task.Delay(500, ct);
+            if (DateTime.UtcNow > deadline)
+                throw new PanException($"夸克{op}任务超时（{TaskWaitTimeout.TotalMinutes} 分钟无终态），任务可能仍在服务端执行");
+            await Task.Delay(500, ct).ConfigureAwait(false);
         }
     }
 
@@ -183,7 +220,7 @@ public sealed class QuarkPanClient : IPanClient
     {
         var data = await PostJsonAsync("file",
             new { pdir_fid = dir?.Id ?? "0", file_name = name, dir_init_lock = false, dir_path = "" },
-            "新建文件夹", ct);
+            "新建文件夹", ct).ConfigureAwait(false);
         var fid = data.GetProperty("fid").GetString()!;
         var parentPath = dir?.Path?.TrimEnd('/') ?? "";
         return new PanFile(fid, parentPath + "/" + name, name, 0, true,
@@ -191,7 +228,7 @@ public sealed class QuarkPanClient : IPanClient
     }
 
     public async Task RenameAsync(PanFile file, string newName, CancellationToken ct = default) =>
-        await PostJsonAsync("file/rename", new { fid = file.Id, file_name = newName }, "重命名", ct);
+        await PostJsonAsync("file/rename", new { fid = file.Id, file_name = newName }, "重命名", ct).ConfigureAwait(false);
 
     public async Task MoveAsync(IReadOnlyList<PanFile> files, PanFile? targetDir, CancellationToken ct = default)
     {
@@ -202,11 +239,28 @@ public sealed class QuarkPanClient : IPanClient
                 to_pdir_fid = targetDir?.Id ?? "0",
                 filelist = files.Select(f => f.Id).ToArray(),
                 exclude_fids = Array.Empty<string>(),
-            }, "移动", ct);
+            }, "移动", ct).ConfigureAwait(false);
         if (data.ValueKind == JsonValueKind.Object &&
             !(data.TryGetProperty("finish", out var fin) && fin.GetBoolean()) &&
             data.TryGetProperty("task_id", out var tid))
-            await WaitTaskAsync(tid.GetString()!, "移动", ct);
+            await WaitTaskAsync(tid.GetString()!, "移动", ct).ConfigureAwait(false);
+    }
+
+    public async Task CopyAsync(IReadOnlyList<PanFile> files, PanFile? targetDir, CancellationToken ct = default)
+    {
+        // file/copy（规格逆向自夸克桌面端 t.copy：action_type=ASYNC、copy_source=1，随后 task 轮询）
+        var data = await PostJsonAsync("file/copy",
+            new
+            {
+                to_pdir_fid = targetDir?.Id ?? "0",
+                filelist = files.Select(f => f.Id).ToArray(),
+                action_type = 2,
+                copy_source = 1,
+            }, "复制", ct).ConfigureAwait(false);
+        if (data.ValueKind == JsonValueKind.Object &&
+            !(data.TryGetProperty("finish", out var fin) && fin.GetBoolean()) &&
+            data.TryGetProperty("task_id", out var tid))
+            await WaitTaskAsync(tid.GetString()!, "复制", ct).ConfigureAwait(false);
     }
 
     public async Task DeleteAsync(IReadOnlyList<PanFile> files, CancellationToken ct = default)
@@ -217,11 +271,11 @@ public sealed class QuarkPanClient : IPanClient
                 action_type = 2,
                 filelist = files.Select(f => f.Id).ToArray(),
                 exclude_fids = Array.Empty<string>(),
-            }, "删除", ct);
+            }, "删除", ct).ConfigureAwait(false);
         if (data.ValueKind == JsonValueKind.Object &&
             !(data.TryGetProperty("finish", out var fin) && fin.GetBoolean()) &&
             data.TryGetProperty("task_id", out var tid))
-            await WaitTaskAsync(tid.GetString()!, "删除", ct);
+            await WaitTaskAsync(tid.GetString()!, "删除", ct).ConfigureAwait(false);
     }
 
     /// <summary>转存外部分享链接（4 步链：token → detail → save → task）。</summary>
@@ -236,7 +290,7 @@ public sealed class QuarkPanClient : IPanClient
 
         var tokenData = await PostJsonAsync("share/sharepage/token",
             new { pwd_id = pwdId, passcode = passcode ?? "", support_visit_limit_private_share = true },
-            "转存-取stoken", ct);
+            "转存-取stoken", ct).ConfigureAwait(false);
         var stoken = tokenData.GetProperty("stoken").GetString()!;
 
         // 拉分享根目录全部条目（转存按根级条目选；文件夹整体递归进）
@@ -246,7 +300,7 @@ public sealed class QuarkPanClient : IPanClient
         {
             var url = $"{DriveBase}/share/sharepage/detail?{Q}&pwd_id={pwdId}&stoken={Uri.EscapeDataString(stoken)}" +
                       $"&pdir_fid=0&force=0&_page={page}&_size=50&_sort=file_type:asc,updated_at:desc";
-            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct)).RootElement;
+            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct).ConfigureAwait(false)).RootElement;
             ThrowIfNotOk(root, "转存-取列表");
             var data = root.GetProperty("data");
             if (data.TryGetProperty("is_owner", out var own) && own.GetInt32() == 1)
@@ -264,7 +318,7 @@ public sealed class QuarkPanClient : IPanClient
         if (fids.Count == 0)
             throw new PanException("分享里没有可转存的文件");
 
-        // save 走 drive.quark.cn（与 drive-pc 通用，逆向口径如此）
+        // save 走 DriveBase（REA 逆向实证：客户端全量 clouddrive 端点统一挂 drive-pc.quark.cn，无 drive.quark.cn 主机）
         var saveBody = JsonSerializer.Serialize(new
         {
             fid_list = fids.ToArray(),
@@ -275,13 +329,13 @@ public sealed class QuarkPanClient : IPanClient
             pdir_fid = "0",
             scene = "link",
         });
-        var resp = await Http.PostAsync($"https://drive.quark.cn/1/clouddrive/share/sharepage/save?{Q}",
-            new StringContent(saveBody, Encoding.UTF8, "application/json"), ct);
-        var saveRoot = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct)).RootElement;
+        var resp = await Http.PostAsync($"{DriveBase}/share/sharepage/save?{Q}",
+            new StringContent(saveBody, Encoding.UTF8, "application/json"), ct).ConfigureAwait(false);
+        var saveRoot = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false)).RootElement;
         ThrowIfNotOk(saveRoot, "转存-提交");
         var taskId = saveRoot.GetProperty("data").GetProperty("task_id").GetString()!;
 
-        var done = await WaitTaskAsync(taskId, "转存", ct);
+        var done = await WaitTaskAsync(taskId, "转存", ct).ConfigureAwait(false);
         var toDirName = done.TryGetProperty("save_as", out var sa) && sa.TryGetProperty("to_pdir_name", out var tn)
             ? tn.GetString() ?? targetDir?.Name ?? "根目录"
             : targetDir?.Name ?? "根目录";
@@ -294,7 +348,7 @@ public sealed class QuarkPanClient : IPanClient
         for (var page = 1; ; page++)
         {
             var url = $"{DriveBase}/share/mypage/detail?{Q}&_page={page}&_size=50&_fetch_total=1&_sort=created_at:desc";
-            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct)).RootElement;
+            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct).ConfigureAwait(false)).RootElement;
             ThrowIfNotOk(root, "分享列表");
             var list = root.GetProperty("data").GetProperty("list");
             if (list.GetArrayLength() == 0) break;
@@ -332,12 +386,12 @@ public sealed class QuarkPanClient : IPanClient
         };
         if (hasPass) body["passcode"] = options.Passcode;
 
-        var data = await PostJsonAsync("share", body, "创建分享", ct);
+        var data = await PostJsonAsync("share", body, "创建分享", ct).ConfigureAwait(false);
         var taskId = data.GetProperty("task_id").GetString()!;
-        var done = await WaitTaskAsync(taskId, "创建分享", ct);
+        var done = await WaitTaskAsync(taskId, "创建分享", ct).ConfigureAwait(false);
         var shareId = done.GetProperty("share_id").GetString()!;
 
-        var pw = await PostJsonAsync("share/password", new { share_id = shareId }, "取分享链接", ct);
+        var pw = await PostJsonAsync("share/password", new { share_id = shareId }, "取分享链接", ct).ConfigureAwait(false);
         var shareUrl2 = pw.TryGetProperty("share_url", out var su) ? su.GetString() ?? "" : "";
         var pass = hasPass ? options.Passcode
             : pw.TryGetProperty("passcode", out var pc) && pc.ValueKind == JsonValueKind.String ? pc.GetString() : null;
@@ -351,15 +405,20 @@ public sealed class QuarkPanClient : IPanClient
     }
 
     public async Task DeleteSharesAsync(IReadOnlyList<string> shareIds, CancellationToken ct = default) =>
-        await PostJsonAsync("share/delete", new { share_ids = shareIds.ToArray() }, "删除分享", ct);
+        await PostJsonAsync("share/delete", new { share_ids = shareIds.ToArray() }, "删除分享", ct).ConfigureAwait(false);
 
-    // ============ P2 阶段3：上传（upload/pre → update/hash → auth+PUT OSS → auth+POST 合并 → finish） ============
+    // ============ P2 阶段3：上传（pre → 单遍流式哈希 → update/hash → 逐分片 auth+PUT OSS → auth+POST 合并 → finish） ============
 
-    private const int ChunkSize = 4 * 1024 * 1024; // 分片定死 4MB（64 的倍数，X-Oss-Hash-Ctx 前提）
+    /// <summary>分片大小缺省 4MB；真实值以 pre 响应 metadata.part_size 为准（65536 的倍数，hash-ctx 边界前提）。</summary>
+    private const int DefaultChunkSize = 4 * 1024 * 1024;
     private const string OssMobileUa = "aliyun-sdk-js/1.0.0 Chrome Mobile 139.0.0.0 on Google Nexus 5 (Android 6.0)";
     private const string OssDesktopUa = "aliyun-sdk-js/1.0.0 Chrome 139.0.0.0 on OS X 10.15.7 64-bit";
 
-    /// <summary>上传本地文件：pre 预创建（可能秒传命中）→ update/hash → 逐分片 auth+PUT OSS → auth+POST 合并 XML → finish。</summary>
+    /// <summary>
+    /// 上传本地文件：pre 预创建（可能秒传命中，取 metadata.part_size）→ 单遍流式哈希
+    /// （MD5+SHA1+分片中间态快照，O(n)）→ update/hash（可能二次秒传/重复备份）→
+    /// 逐分片 auth+PUT OSS（3 次重试）→ auth+POST 合并 XML → finish。
+    /// </summary>
     public async Task<PanUploadResult> UploadAsync(
         string localPath, PanFile? targetDir, PanConflictPolicy policy = PanConflictPolicy.Skip,
         IProgress<PanUploadProgress>? progress = null, CancellationToken ct = default)
@@ -373,13 +432,7 @@ public sealed class QuarkPanClient : IPanClient
         var dirPath = (targetDir?.Path ?? "/").TrimEnd('/');
         var nowMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
 
-        progress?.Report(new(fileSize, 0, 0, 0, "计算哈希"));
-        var md5Hex = Convert.ToHexString(
-            System.Security.Cryptography.MD5.HashData(await File.ReadAllBytesAsync(localPath, ct))).ToLowerInvariant();
-        var sha1Hex = Convert.ToHexString(
-            System.Security.Cryptography.SHA1.HashData(await File.ReadAllBytesAsync(localPath, ct))).ToLowerInvariant();
-
-        // 步骤1：pre。finish=true 即秒传命中（QuarkPan 未处理该分支，这里补上）。
+        // 步骤1：pre。finish=true 即秒传命中（镜像客户端 end(data) 语义）；metadata.part_size 是服务端下发的真实分片大小。
         progress?.Report(new(fileSize, 0, 0, 0, "预创建"));
         var pre = await PostJsonAsync("file/upload/pre", new
         {
@@ -392,7 +445,7 @@ public sealed class QuarkPanClient : IPanClient
             format_type = mime,
             l_updated_at = nowMs,
             l_created_at = nowMs,
-        }, "上传-预创建", ct);
+        }, "上传-预创建", ct).ConfigureAwait(false);
         var rapid = pre.TryGetProperty("finish", out var fin) && fin.ValueKind == JsonValueKind.True;
         if (rapid || !pre.TryGetProperty("upload_id", out _))
             return new PanUploadResult(true, MapUploadFile(pre, dirPath, fileName, fileSize));
@@ -404,13 +457,53 @@ public sealed class QuarkPanClient : IPanClient
         var bucket = pre.TryGetProperty("bucket", out var bk) ? bk.GetString() ?? "ul-zb" : "ul-zb";
         var callback = pre.GetProperty("callback");
 
-        // 步骤2：update/hash（全文件 MD5/SHA1）
-        await PostJsonAsync("file/update/hash", new { task_id = taskId, md5 = md5Hex, sha1 = sha1Hex },
-            "上传-更新哈希", ct);
+        var chunkSize = DefaultChunkSize;
+        if (pre.TryGetProperty("metadata", out var md) && md.TryGetProperty("part_size", out var ps)
+            && ps.TryGetInt64(out var psVal) && psVal > 0)
+        {
+            if (psVal % 65536 != 0)
+                throw new PanException($"服务端下发分片大小 {psVal} 不是 65536 的倍数，无法按分片上传");
+            chunkSize = (int)Math.Min(psVal, int.MaxValue);
+        }
 
-        // 步骤3：分片数（<5MB 单分片；>=5MB 按 4MB 切）
+        // 步骤2：单遍流式哈希。MD5（完整哈希）+ SHA1（完整哈希 + 每 chunkSize 边界的中间态快照），O(n) 一次扫盘。
+        progress?.Report(new(fileSize, 0, 0, 0, "计算哈希"));
+        var sha1 = new Sha1Incremental();
+        using var md5 = System.Security.Cryptography.IncrementalHash.CreateHash(
+            System.Security.Cryptography.HashAlgorithmName.MD5);
+        var ctxByBoundary = new List<string> { "" }; // [k] = 前 k*chunkSize 字节的中间态；[0] 占位（part1 无 ctx）
+        var buffer = new byte[1024 * 1024];
+        var totalRead = 0L;
+        await using (var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 1024 * 1024, useAsync: true))
+        {
+            int read;
+            while ((read = await fs.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+            {
+                md5.AppendData(buffer, 0, read);
+                sha1.Feed(buffer.AsSpan(0, read));
+                totalRead += read;
+                while (totalRead >= (long)ctxByBoundary.Count * chunkSize)
+                    ctxByBoundary.Add(sha1.SnapshotCtx());
+            }
+        }
+        var md5Hex = Convert.ToHexString(md5.GetHashAndReset()).ToLowerInvariant();
+        var sha1Hex = sha1.FinalizeHex();
+
+        // 步骤3：update/hash。finish=true 即二次秒传命中（镜像客户端 FLASH_FINISH → end(data)）；repeat_backup 镜像客户端抛错。
+        var upData = await PostJsonAsync("file/update/hash", new { task_id = taskId, md5 = md5Hex, sha1 = sha1Hex },
+            "上传-更新哈希", ct).ConfigureAwait(false);
+        if (upData.ValueKind == JsonValueKind.Object)
+        {
+            if (upData.TryGetProperty("finish", out var uf) && uf.ValueKind == JsonValueKind.True)
+                return new PanUploadResult(true, MapUploadFile(upData, dirPath, fileName, fileSize));
+            if (upData.TryGetProperty("repeat_backup", out var ur) && ur.ValueKind == JsonValueKind.True)
+                throw new PanException("夸克判定为重复备份文件（repeat_backup），已中止上传");
+        }
+
+        // 步骤4：分片数（<5MB 单分片；否则按 chunkSize 切）。
         var partCount = fileSize < 5L * 1024 * 1024 ? 1
-            : (int)((fileSize + ChunkSize - 1) / ChunkSize);
+            : (int)((fileSize + chunkSize - 1) / chunkSize);
         var etags = new string[partCount];
         await using (var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
             bufferSize: 1024 * 1024, useAsync: true))
@@ -418,78 +511,98 @@ public sealed class QuarkPanClient : IPanClient
             for (var seq = 1; seq <= partCount; seq++)
             {
                 ct.ThrowIfCancellationRequested();
-                var offset = (long)(seq - 1) * ChunkSize;
-                var partLen = (int)Math.Min(ChunkSize, fileSize - offset);
+                var offset = (long)(seq - 1) * chunkSize;
+                var partLen = (int)Math.Min(chunkSize, fileSize - offset);
                 var partBuf = new byte[partLen];
                 fs.Seek(offset, SeekOrigin.Begin);
                 var read = 0;
                 while (read < partLen)
-                    read += await fs.ReadAsync(partBuf.AsMemory(read, partLen - read), ct);
+                    read += await fs.ReadAsync(partBuf.AsMemory(read, partLen - read), ct).ConfigureAwait(false);
 
-                // X-Oss-Hash-Ctx：part>=2 带前 seq-1 个分片的 SHA1 中间态
-                string? hashCtx = null;
-                if (seq > 1)
-                {
-                    var prevBytes = new byte[(seq - 1) * (long)ChunkSize];
-                    fs.Seek(0, SeekOrigin.Begin);
-                    var pr = 0;
-                    while (pr < prevBytes.Length)
-                        pr += await fs.ReadAsync(prevBytes.AsMemory(pr, prevBytes.Length - pr), ct);
-                    hashCtx = Sha1Incremental.BuildHashCtx(prevBytes);
-                }
+                // X-Oss-Hash-Ctx：part>=2 带前缀中间态（流式快照，O(n) 总量）
+                var hashCtx = seq > 1 && seq - 1 < ctxByBoundary.Count ? ctxByBoundary[seq - 1] : null;
 
                 progress?.Report(new(fileSize, offset, partCount, seq - 1, "上传分片"));
                 etags[seq - 1] = await PutPartAsync(taskId, authInfo, uploadId, objKey, bucket, mime, seq,
-                    partBuf, hashCtx, ct);
+                    partBuf, hashCtx, ct).ConfigureAwait(false);
                 progress?.Report(new(fileSize, offset + partLen, partCount, seq, "上传分片"));
             }
         }
 
-        // 步骤4：合并（auth+POST CompleteMultipartUpload；200/203 都算成）
+        // 步骤5：合并（auth+POST CompleteMultipartUpload；2xx 均视为成功，与客户端一致）
         progress?.Report(new(fileSize, fileSize, partCount, partCount, "合并"));
-        await CompleteMultipartAsync(taskId, authInfo, uploadId, objKey, bucket, callback, etags, ct);
+        await CompleteMultipartAsync(taskId, authInfo, uploadId, objKey, bucket, callback, etags, ct).ConfigureAwait(false);
 
-        // 步骤5：finish 通知夸克
+        // 步骤6：finish 通知夸克
         var done = await PostJsonAsync("file/upload/finish", new { task_id = taskId, obj_key = objKey },
-            "上传-完成", ct);
+            "上传-完成", ct).ConfigureAwait(false);
         return new PanUploadResult(false, MapUploadFile(done, dirPath, fileName, fileSize));
     }
 
-    /// <summary>单个分片：auth 换 auth_key，PUT 到 {bucket}.pds.quark.cn，返回 ETag（去引号）。</summary>
+    /// <summary>
+    /// 单个分片：auth 换 auth_key，PUT 到 {bucket}.pds.quark.cn，返回 ETag（去引号）。
+    /// 3 次尝试、间隔 500ms（网络错误/5xx/超时才重试）；每次尝试独立 120s 超时；
+    /// 签名串与实际 URL 统一用转义后的 uploadId（OSS canonical resource 与 URL 同源，与客户端一致）。
+    /// </summary>
     private async Task<string> PutPartAsync(string taskId, string authInfo, string uploadId, string objKey,
         string bucket, string mime, int partNumber, byte[] partBuf, string? hashCtx, CancellationToken ct)
     {
-        var ossDate = OssDate();
-        var authMeta = hashCtx == null
-            ? $"PUT\n\n{mime}\n{ossDate}\nx-oss-date:{ossDate}\nx-oss-user-agent:{OssMobileUa}\n/{bucket}/{objKey}?partNumber={partNumber}&uploadId={uploadId}"
-            : $"PUT\n\n{mime}\n{ossDate}\nx-oss-date:{ossDate}\nx-oss-hash-ctx:{hashCtx}\nx-oss-user-agent:{OssMobileUa}\n/{bucket}/{objKey}?partNumber={partNumber}&uploadId={uploadId}";
-        var authData = await PostJsonAsync("file/upload/auth", new { task_id = taskId, auth_info = authInfo, auth_meta = authMeta },
-            $"上传-分片{partNumber}授权", ct);
-        var authKey = authData.TryGetProperty("auth_key", out var ak) ? ak.GetString() : null;
-
-        using var req = new HttpRequestMessage(HttpMethod.Put,
-            $"https://{bucket}.pds.quark.cn/{objKey}?partNumber={partNumber}&uploadId={Uri.EscapeDataString(uploadId)}")
-        { Content = new ByteArrayContent(partBuf) };
-        req.Content.Headers.TryAddWithoutValidation("Content-Type", mime);
-        req.Headers.TryAddWithoutValidation("x-oss-date", ossDate);
-        req.Headers.TryAddWithoutValidation("x-oss-user-agent", OssMobileUa);
-        if (authKey != null) req.Headers.TryAddWithoutValidation("authorization", authKey);
-        if (hashCtx != null) req.Headers.TryAddWithoutValidation("X-Oss-Hash-Ctx", hashCtx);
-
-        var resp = await Http.SendAsync(req, ct);
-        if (!resp.IsSuccessStatusCode)
+        var escapedUploadId = Uri.EscapeDataString(uploadId);
+        for (var attempt = 1; ; attempt++)
         {
-            var body = await resp.Content.ReadAsStringAsync(ct);
-            throw new PanException($"夸克上传分片{partNumber}失败 {(int)resp.StatusCode} {body[..Math.Min(body.Length, 200)]}");
+            var ossDate = OssDate();
+            var authMeta = hashCtx == null
+                ? $"PUT\n\n{mime}\n{ossDate}\nx-oss-date:{ossDate}\nx-oss-user-agent:{OssMobileUa}\n/{bucket}/{objKey}?partNumber={partNumber}&uploadId={escapedUploadId}"
+                : $"PUT\n\n{mime}\n{ossDate}\nx-oss-date:{ossDate}\nx-oss-hash-ctx:{hashCtx}\nx-oss-user-agent:{OssMobileUa}\n/{bucket}/{objKey}?partNumber={partNumber}&uploadId={escapedUploadId}";
+            var authData = await PostJsonAsync("file/upload/auth", new { task_id = taskId, auth_info = authInfo, auth_meta = authMeta },
+                $"上传-分片{partNumber}授权", ct).ConfigureAwait(false);
+            var authKey = authData.TryGetProperty("auth_key", out var ak) ? ak.GetString() : null;
+
+            try
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(PartTimeout);
+                using var req = new HttpRequestMessage(HttpMethod.Put,
+                    $"https://{bucket}.pds.quark.cn/{objKey}?partNumber={partNumber}&uploadId={escapedUploadId}")
+                { Content = new ByteArrayContent(partBuf) };
+                req.Content.Headers.TryAddWithoutValidation("Content-Type", mime);
+                req.Headers.TryAddWithoutValidation("x-oss-date", ossDate);
+                req.Headers.TryAddWithoutValidation("x-oss-user-agent", OssMobileUa);
+                if (authKey != null) req.Headers.TryAddWithoutValidation("authorization", authKey);
+                if (hashCtx != null) req.Headers.TryAddWithoutValidation("X-Oss-Hash-Ctx", hashCtx);
+
+                var resp = await Http.SendAsync(req, timeoutCts.Token).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    if ((int)resp.StatusCode >= 500 && attempt < PartAttempts)
+                    {
+                        await Task.Delay(PartRetryDelay, ct).ConfigureAwait(false);
+                        continue;
+                    }
+                    throw new PanException($"夸克上传分片{partNumber}失败 {(int)resp.StatusCode} {body[..Math.Min(body.Length, 200)]}");
+                }
+                var etag = (resp.Headers.ETag?.Tag ?? "").Trim('"');
+                if (etag.Length == 0) etag = resp.Headers.TryGetValues("etag", out var ev) ? ev.First().Trim('"') : "";
+                if (etag.Length == 0)
+                    throw new PanException($"夸克上传分片{partNumber}成功但未取到ETag");
+                return etag;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // 单次尝试超时（网络过慢）
+                if (attempt >= PartAttempts)
+                    throw new PanException($"夸克上传分片{partNumber}超时（每次尝试 {PartTimeout.TotalSeconds}s，已重试 {PartAttempts} 次）");
+                await Task.Delay(PartRetryDelay, ct).ConfigureAwait(false);
+            }
+            catch (HttpRequestException) when (attempt < PartAttempts)
+            {
+                await Task.Delay(PartRetryDelay, ct).ConfigureAwait(false);
+            }
         }
-        var etag = (resp.Headers.ETag?.Tag ?? "").Trim('"');
-        if (etag.Length == 0) etag = resp.Headers.TryGetValues("etag", out var ev) ? ev.First().Trim('"') : "";
-        if (etag.Length == 0)
-            throw new PanException($"夸克上传分片{partNumber}成功但未取到ETag");
-        return etag;
     }
 
-    /// <summary>合并：auth（upload_mode=complete）换 POST 授权，POST XML 到 OSS。200/203 均视为成功。</summary>
+    /// <summary>合并：auth（upload_mode=complete）换 POST 授权，POST XML 到 OSS。2xx 均视为成功（与客户端一致）。</summary>
     private async Task CompleteMultipartAsync(string taskId, string authInfo, string uploadId, string objKey,
         string bucket, JsonElement callback, string[] etags, CancellationToken ct)
     {
@@ -502,14 +615,15 @@ public sealed class QuarkPanClient : IPanClient
         var callbackB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(
             JsonSerializer.Serialize(callback, new JsonSerializerOptions { WriteIndented = false })));
         var ossDate = OssDate();
-        var authMeta = $"POST\n{xmlMd5}\napplication/xml\n{ossDate}\nx-oss-callback:{callbackB64}\nx-oss-date:{ossDate}\nx-oss-user-agent:{OssDesktopUa}\n/{bucket}/{objKey}?uploadId={uploadId}";
+        var escapedUploadId = Uri.EscapeDataString(uploadId);
+        var authMeta = $"POST\n{xmlMd5}\napplication/xml\n{ossDate}\nx-oss-callback:{callbackB64}\nx-oss-date:{ossDate}\nx-oss-user-agent:{OssDesktopUa}\n/{bucket}/{objKey}?uploadId={escapedUploadId}";
 
         var authData = await PostJsonAsync("file/upload/auth", new { task_id = taskId, auth_meta = authMeta, auth_info = authInfo },
-            "上传-合并授权", ct);
+            "上传-合并授权", ct).ConfigureAwait(false);
         var authKey = authData.TryGetProperty("auth_key", out var ak) ? ak.GetString() : null;
 
         using var req = new HttpRequestMessage(HttpMethod.Post,
-            $"https://{bucket}.pds.quark.cn/{objKey}?uploadId={Uri.EscapeDataString(uploadId)}");
+            $"https://{bucket}.pds.quark.cn/{objKey}?uploadId={escapedUploadId}");
         // Content-Type 必须恰为 application/xml（无 charset），否则与签名串不符 → SignatureDoesNotMatch
         var content = new StringContent(xml, Encoding.UTF8);
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/xml");
@@ -520,10 +634,10 @@ public sealed class QuarkPanClient : IPanClient
         req.Content.Headers.TryAddWithoutValidation("Content-MD5", xmlMd5);
         if (authKey != null) req.Headers.TryAddWithoutValidation("authorization", authKey);
 
-        var resp = await Http.SendAsync(req, ct);
-        if (resp.StatusCode is not (System.Net.HttpStatusCode.OK or System.Net.HttpStatusCode.NonAuthoritativeInformation))
+        var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
         {
-            var body = await resp.Content.ReadAsStringAsync(ct);
+            var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             throw new PanException($"夸克上传合并失败 {(int)resp.StatusCode} {body[..Math.Min(body.Length, 200)]}");
         }
     }
@@ -553,7 +667,6 @@ public sealed class QuarkPanClient : IPanClient
         ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         _ => "application/octet-stream",
     };
-
 
     private static PanFile MapFile(JsonElement it, string path)
     {

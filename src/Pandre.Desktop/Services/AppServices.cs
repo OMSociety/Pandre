@@ -19,6 +19,25 @@ public static class AppServices
 
     public static DownloadManager Downloads { get; } = new();
 
+    /// <summary>设置文件所在目录（%APPDATA%\Pandre），扩展安装目录也在其下。</summary>
+    public static string AppDataDirPath => Path.GetDirectoryName(SettingsPath)!;
+
+    /// <summary>浏览器接管的本地接收入口（回环 HTTP，token 校验）。关闭后会被新实例替换。</summary>
+    public static TakeoverServer Takeover { get; private set; } = new();
+
+    /// <summary>停掉接管入口并换一个干净实例（设置里关掉开关时用）。</summary>
+    public static void StopTakeover()
+    {
+        try { Takeover.Dispose(); } catch { }
+        Takeover = new TakeoverServer();
+    }
+
+    /// <summary>项目仓库地址（关于页跳转用）。</summary>
+    public const string RepositoryUrl = "https://github.com/OMSociety/Pandre";
+
+    /// <summary>开发者主页地址（关于页跳转用）。</summary>
+    public const string AuthorUrl = "https://github.com/OMSociety";
+
     // ===== 设置（theme/material/downloadDir 统一持久化到 settings.json） =====
 
     /// <summary>主题：system / light / dark</summary>
@@ -43,18 +62,82 @@ public static class AppServices
         set { var s = LoadSettings(); s.DownloadDir = value; SaveSettings(s); }
     }
 
-    /// <summary>单任务连接数（aria2 --split / --max-connection-per-server），1-64，默认 16，重启 aria2 生效。</summary>
+    /// <summary>单任务连接数（aria2 --split / --max-connection-per-server），1-64，默认 16。引擎在应用启动时固定此值，改后重启应用生效。</summary>
     public static int Aria2Connections
     {
         get => LoadSettings().Aria2Connections is > 0 and <= 64 ? LoadSettings().Aria2Connections!.Value : 16;
         set { var s = LoadSettings(); s.Aria2Connections = Math.Clamp(value, 1, 64); SaveSettings(s); }
     }
 
-    /// <summary>全局同时下载数（aria2 --max-concurrent-downloads），1-20，默认 5，重启 aria2 生效。</summary>
+    /// <summary>全局同时下载数（aria2 --max-concurrent-downloads），1-20，默认 5。引擎在应用启动时固定此值，改后重启应用生效。</summary>
     public static int Aria2MaxConcurrent
     {
         get => LoadSettings().Aria2MaxConcurrent is > 0 and <= 20 ? LoadSettings().Aria2MaxConcurrent!.Value : 5;
         set { var s = LoadSettings(); s.Aria2MaxConcurrent = Math.Clamp(value, 1, 20); SaveSettings(s); }
+    }
+
+    /// <summary>标题栏关闭按钮行为：exit（退出应用）/ tray（最小化到托盘，应用继续在后台运行）。默认 tray。</summary>
+    public static string CloseBehavior
+    {
+        get => LoadSettings().CloseBehavior == "exit" ? "exit" : "tray";
+        set { var s = LoadSettings(); s.CloseBehavior = value == "exit" ? "exit" : "tray"; SaveSettings(s); }
+    }
+
+    // ===== 浏览器接管（扩展通过回环 HTTP 把网盘网页选中的文件交给本应用下载） =====
+
+    /// <summary>是否启用浏览器接管：开着则本地接收入口随应用启动。默认关。</summary>
+    public static bool TakeoverEnabled
+    {
+        get => LoadSettings().TakeoverEnabled ?? false;
+        set { var s = LoadSettings(); s.TakeoverEnabled = value; SaveSettings(s); }
+    }
+
+    /// <summary>接管入口的本机回环端口，1024-65535，默认 17821。改后需重启应用。</summary>
+    public static int TakeoverPort
+    {
+        get => LoadSettings().TakeoverPort is >= 1024 and <= 65535 ? LoadSettings().TakeoverPort!.Value : 17821;
+        set { var s = LoadSettings(); s.TakeoverPort = value; SaveSettings(s); }
+    }
+
+    /// <summary>接管入口的访问令牌：首次访问时生成并持久化，安装扩展时写入扩展目录的 config.js。</summary>
+    public static string TakeoverToken
+    {
+        get
+        {
+            var s = LoadSettings();
+            if (string.IsNullOrEmpty(s.TakeoverToken))
+            {
+                s.TakeoverToken = Convert.ToHexString(
+                    System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+                SaveSettings(s);
+            }
+            return s.TakeoverToken!;
+        }
+    }
+
+    // ===== 功能开关（全局：百度与夸克同时生效） =====
+    /// <summary>功能开关变化后通知各页面刷新可见性。设置页改动时触发。</summary>
+    public static event Action? FeatureFlagsChanged;
+
+    /// <summary>是否启用「转存」（外部分享链接保存到当前目录）。</summary>
+    public static bool ShowSaveShare
+    {
+        get => LoadSettings().ShowSaveShare ?? true;
+        set { var s = LoadSettings(); s.ShowSaveShare = value; SaveSettings(s); FeatureFlagsChanged?.Invoke(); }
+    }
+
+    /// <summary>是否启用「离线下载」（百度 magnet/ed2k 云端下载）。</summary>
+    public static bool ShowOfflineDownload
+    {
+        get => LoadSettings().ShowOfflineDownload ?? true;
+        set { var s = LoadSettings(); s.ShowOfflineDownload = value; SaveSettings(s); FeatureFlagsChanged?.Invoke(); }
+    }
+
+    /// <summary>是否启用「分享管理」（列出/复制/取消我的分享）。</summary>
+    public static bool ShowShareManage
+    {
+        get => LoadSettings().ShowShareManage ?? true;
+        set { var s = LoadSettings(); s.ShowShareManage = value; SaveSettings(s); FeatureFlagsChanged?.Invoke(); }
     }
 
     private sealed class Settings
@@ -64,25 +147,42 @@ public static class AppServices
         public string? DownloadDir { get; set; }
         public int? Aria2Connections { get; set; }
         public int? Aria2MaxConcurrent { get; set; }
+        public bool? ShowSaveShare { get; set; }
+        public bool? ShowOfflineDownload { get; set; }
+        public bool? ShowShareManage { get; set; }
+        public string? CloseBehavior { get; set; }
+        public bool? TakeoverEnabled { get; set; }
+        public int? TakeoverPort { get; set; }
+        public string? TakeoverToken { get; set; }
     }
 
     private static string SettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Pandre", "settings.json");
 
+    private static readonly object _settingsGate = new();
     private static Settings? _settingsCache;
 
     private static Settings LoadSettings()
     {
-        if (_settingsCache != null) return _settingsCache;
-        try
+        // 加锁懒初始化：UI 线程与 Task.Run 启动链并发读时，避免各建一份实例互相丢更新
+        lock (_settingsGate)
         {
-            if (File.Exists(SettingsPath))
-                _settingsCache = JsonSerializer.Deserialize<Settings>(File.ReadAllText(SettingsPath)) ?? new Settings();
-            else
+            if (_settingsCache != null) return _settingsCache;
+            try
+            {
+                if (File.Exists(SettingsPath))
+                    _settingsCache = JsonSerializer.Deserialize<Settings>(File.ReadAllText(SettingsPath)) ?? new Settings();
+                else
+                    _settingsCache = new Settings();
+            }
+            catch (Exception ex)
+            {
+                // 坏文件回默认值，留调试痕迹
+                System.Diagnostics.Debug.WriteLine("[AppServices] 设置读取失败，回默认值: " + ex.Message);
                 _settingsCache = new Settings();
+            }
+            return _settingsCache;
         }
-        catch { _settingsCache = new Settings(); }
-        return _settingsCache;
     }
 
     private static void SaveSettings(Settings s)
@@ -93,7 +193,11 @@ public static class AppServices
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
             File.WriteAllText(SettingsPath, JsonSerializer.Serialize(s));
         }
-        catch { /* 写不进就算了 */ }
+        catch (Exception ex)
+        {
+            // 写不进（目录只读/磁盘满等）留调试痕迹，不静默
+            System.Diagnostics.Debug.WriteLine("[AppServices] 设置写盘失败: " + ex.Message);
+        }
     }
 
     /// <summary>把主题应用到当前 Application。</summary>
@@ -144,6 +248,13 @@ public static class AppServices
     {
         try { Downloads.Start(DefaultAria2Path(), Aria2Connections, Aria2MaxConcurrent); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine("aria2 启动失败: " + ex.Message); }
+    }
+
+    /// <summary>启动浏览器接管的本地接收入口（幂等）。端口被占等失败不阻断应用；设置页显示状态。</summary>
+    public static void StartTakeover()
+    {
+        try { Takeover.Start(TakeoverPort); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine("接管入口启动失败: " + ex.Message); }
     }
 
     public static async Task SaveCredentialAsync(PanCredential cred)

@@ -54,6 +54,19 @@ public partial class MainWindow : Window
 
     private void OnCloseClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Close();
 
+    /// <summary>关闭按钮行为为「最小化到托盘」时，把关闭改成隐藏：窗口从任务栏消失、应用继续在后台跑，
+    /// 托盘图标左键唤回；托盘菜单「退出应用」会先置位再关窗，走正常退出分支。</summary>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (Services.TrayService.ShouldHideOnClose)
+        {
+            e.Cancel = true;
+            Hide();
+            return;
+        }
+        base.OnClosing(e);
+    }
+
     /// <summary>标题栏拖拽移动窗口。</summary>
     private void OnTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -72,6 +85,19 @@ public partial class MainWindow : Window
     private void OnCloseLoginPanelClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (DataContext is ViewModels.MainViewModel vm) vm.IsLoginPanelOpen = false;
+    }
+
+    /// <summary>功能开关弹窗：点遮罩空白关闭。</summary>
+    private void OnFeatureOverlayPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (ReferenceEquals(e.Source, sender) && DataContext is ViewModels.MainViewModel vm)
+            vm.IsFeaturePanelOpen = false;
+    }
+
+    /// <summary>功能开关弹窗左上角返回箭头。</summary>
+    private void OnCloseFeaturePanelClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is ViewModels.MainViewModel vm) vm.IsFeaturePanelOpen = false;
     }
 
     /// <summary>网盘弹窗：点遮罩空白关闭（遮罩的 DataContext 是 MainViewModel，弹窗卡片才是 PanViewModel）。</summary>
@@ -109,11 +135,17 @@ public partial class MainWindow : Window
         await clipboard.SetDataAsync(transfer);
     }
 
-    /// <summary>Esc 收起弹窗（登录弹窗或网盘操作弹窗）。</summary>
+    /// <summary>Esc 收起弹窗（登录弹窗 / 功能开关 / 网盘操作弹窗）。</summary>
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.Key == Key.Escape && DataContext is ViewModels.MainViewModel vm)
         {
+            if (vm.IsFeaturePanelOpen)
+            {
+                vm.IsFeaturePanelOpen = false;
+                e.Handled = true;
+                return;
+            }
             if (vm.IsLoginPanelOpen)
             {
                 vm.IsLoginPanelOpen = false;

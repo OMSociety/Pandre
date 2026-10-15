@@ -28,13 +28,13 @@ public sealed partial class BaiduQrLogin : IQrLoginFlow
     public async Task<QrCodePayload> GetQrCodeAsync(CancellationToken ct = default)
     {
         var json = JsonDocument.Parse(await _http.GetStringAsync(
-            $"https://passport.baidu.com/v2/api/getqrcode?lp=pc&qrloginfrom=pc&qrcode=1&apiver=v3&tt={Ts()}&tpl=netdisk", ct));
+            $"https://passport.baidu.com/v2/api/getqrcode?lp=pc&qrloginfrom=pc&qrcode=1&apiver=v3&tt={Ts()}&tpl=netdisk", ct).ConfigureAwait(false));
         _sign = json.RootElement.GetProperty("sign").GetString()
             ?? throw new PanException("百度 getqrcode 未返回 sign");
         var imgurl = json.RootElement.GetProperty("imgurl").GetString()!.Replace("\\/", "/");
         if (!imgurl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             imgurl = "https://" + imgurl.TrimStart('/');
-        var png = await _http.GetByteArrayAsync(imgurl, ct);
+        var png = await _http.GetByteArrayAsync(imgurl, ct).ConfigureAwait(false);
         return new QrCodePayload(png, null, "用「百度网盘 App」或「百度 App」扫码");
     }
 
@@ -45,6 +45,8 @@ public sealed partial class BaiduQrLogin : IQrLoginFlow
 
         string? ticket = null;
         var deadline = DateTime.Now.AddMinutes(3);
+        var netFailStreak = 0;   // 网络抖动连续计数（连续 5 次按网络故障收尾，不空转到 deadline）
+        var unknownStreak = 0;   // 未知状态码连续计数（透传而非静默吞掉）
         while (DateTime.Now < deadline && ticket == null)
         {
             ct.ThrowIfCancellationRequested();
@@ -52,9 +54,10 @@ public sealed partial class BaiduQrLogin : IQrLoginFlow
             try
             {
                 raw = await _http.GetStringAsync(
-                    $"https://passport.baidu.com/channel/unicast?channel_id={_sign}&u=&tpl=netdisk&apiver=v3&tt={Ts()}&callback=", ct);
+                    $"https://passport.baidu.com/channel/unicast?channel_id={_sign}&u=&tpl=netdisk&apiver=v3&tt={Ts()}&callback=", ct).ConfigureAwait(false);
+                netFailStreak = 0;
             }
-            catch (HttpRequestException) { continue; }   // 长轮询本身会超时断连，重试即可
+            catch (HttpRequestException) when (++netFailStreak <= 5) { continue; }   // 长轮询本身会超时断连，重试即可
             catch (TaskCanceledException) when (!ct.IsCancellationRequested) { continue; }
 
             var uni = JsonDocument.Parse(raw);
@@ -62,8 +65,19 @@ public sealed partial class BaiduQrLogin : IQrLoginFlow
             if (cv.Length == 0) continue;
             var cvj = JsonDocument.Parse(cv.Replace("\\/", "/"));
             var status = cvj.RootElement.GetProperty("status").GetInt32();
-            if (status == 1) progress?.Report(QrLoginState.Scanned);
+            if (status == 1)
+            {
+                unknownStreak = 0;
+                progress?.Report(QrLoginState.Scanned);
+            }
             else if (status == 0 && cvj.RootElement.TryGetProperty("v", out var ve)) ticket = ve.GetString();
+            else if (status == 0) { /* status=0 暂未带票：下一拍再取 */ }
+            else
+            {
+                // 未知状态码透传：连续多次未知按错误终止，避免静默空转到超时
+                if (++unknownStreak >= 3)
+                    throw new PanException($"百度扫码轮询返回未知状态码 {status}");
+            }
         }
 
         if (ticket == null)
@@ -74,7 +88,7 @@ public sealed partial class BaiduQrLogin : IQrLoginFlow
 
         // 用票据换 BDUSS：返回 200 伪 JSON（单引号 + &quot; 转义），正则抽取
         var loginBody = await _http.GetStringAsync(
-            $"https://passport.baidu.com/v3/login/main/qrbdusslogin?bduss={ticket}&u=https%3A%2F%2Fpan.baidu.com%2Fdisk%2Fmain&qrcode=1&tpl=netdisk&apiver=v3&tt={Ts()}", ct);
+            $"https://passport.baidu.com/v3/login/main/qrbdusslogin?bduss={ticket}&u=https%3A%2F%2Fpan.baidu.com%2Fdisk%2Fmain&qrcode=1&tpl=netdisk&apiver=v3&tt={Ts()}", ct).ConfigureAwait(false);
         var mBduss = BdussRegex().Match(loginBody);
         var mStoken = StokenRegex().Match(loginBody);
         if (!mBduss.Success || !mStoken.Success)

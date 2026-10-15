@@ -2,8 +2,22 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Pandre.Desktop.App"
              xmlns:local="using:Pandre.Desktop"
-             xmlns:ac="using:Avalonia.Controls.Chrome"
              RequestedThemeVariant="Default">
+
+    <!-- 托盘图标：常驻通知区域，窗口隐藏后应用继续在后台跑（挂载点为 Application 上的附加属性 TrayIcon.Icons） -->
+    <TrayIcon.Icons>
+        <TrayIcons>
+            <TrayIcon Icon="/Assets/pandre.ico" ToolTipText="盘多录 Pandre" Clicked="OnTrayIconClicked">
+                <TrayIcon.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="显示主界面" Click="OnTrayShowClicked"/>
+                        <NativeMenuItemSeparator/>
+                        <NativeMenuItem Header="退出应用" Click="OnTrayExitClicked"/>
+                    </NativeMenu>
+                </TrayIcon.Menu>
+            </TrayIcon>
+        </TrayIcons>
+    </TrayIcon.Icons>
 
     <Application.DataTemplates>
         <local:ViewLocator />
@@ -16,6 +30,8 @@
             <ResourceDictionary x:Key="Dark">
                 <Color x:Key="AccentColor">#60CDFF</Color>
                 <SolidColorBrush x:Key="AccentBrush" Color="#60CDFF"/>
+                <!-- 压在强调色实底上的前景色，运行时按系统强调色亮度改写 -->
+                <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFF"/>
                 <!-- 分层卡片色（Fluent Layer on Mica，对齐 Win11 设置卡 #2B2B2B） -->
                 <SolidColorBrush x:Key="CardBrush" Color="#0DFFFFFF"/>
                 <SolidColorBrush x:Key="CardHoverBrush" Color="#14FFFFFF"/>
@@ -44,6 +60,7 @@
             <ResourceDictionary x:Key="Light">
                 <Color x:Key="AccentColor">#0067C0</Color>
                 <SolidColorBrush x:Key="AccentBrush" Color="#0067C0"/>
+                <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFF"/>
                 <SolidColorBrush x:Key="CardBrush" Color="#FDFDFD"/>
                 <SolidColorBrush x:Key="CardHoverBrush" Color="#F5F5F5"/>
                 <SolidColorBrush x:Key="CardBorderBrush" Color="#E5E5E5"/>
@@ -175,7 +192,7 @@
         <!-- 主按钮 -->
         <Style Selector="Button.primary">
             <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
         </Style>
         <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
@@ -228,9 +245,9 @@
         <Style Selector="ListBox.nav ListBoxItem:selected Border.nav-item PathIcon">
             <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
         </Style>
+        <!-- 选中态只换前景色，不加粗：SemiBold 在浅色主题下笔画互相挤压，且会撑动文字宽度 -->
         <Style Selector="ListBox.nav ListBoxItem:selected Border.nav-item TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
 
         <!-- 文件/下载行：裸模板——悬停/选中视觉全由 row-card 接管，圆角永远成立 -->
@@ -282,25 +299,6 @@
         <!-- 滚动条调细 -->
         <Style Selector="ScrollBar">
             <Setter Property="Width" Value="10"/>
-        </Style>
-
-        <!-- 标题栏窗口按钮 -->
-        <Style Selector="Button.caption-btn">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="CornerRadius" Value="0"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Width" Value="46"/>
-            <Setter Property="Height" Value="40"/>
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
-        </Style>
-        <Style Selector="Button.caption-btn:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#22FFFFFF"/>
-        </Style>
-        <Style Selector="Button.caption-btn.close:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#E81123"/>
-        </Style>
-        <Style Selector="Button.caption-btn.close:pointerover">
-            <Setter Property="Foreground" Value="White"/>
         </Style>
     </Application.Styles>
 </Application>

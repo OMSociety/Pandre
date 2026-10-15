@@ -15,7 +15,7 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.DarkTheme}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="应用主题"/>
               <TextBlock Classes="secondary" Text="更改应用程序的外观"/>
@@ -33,7 +33,7 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.DarkTheme}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="窗口背景透明材质"/>
               <TextBlock Classes="secondary" Text="设置窗口背景透明效果和透明材质"/>
@@ -47,6 +47,42 @@
               </ComboBox.ItemTemplate>
             </ComboBox>
           </Grid>
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.Dismiss}"
+                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="关闭按钮行为"/>
+              <TextBlock Classes="secondary" Text="点击标题栏关闭按钮时执行的操作"/>
+            </StackPanel>
+            <ComboBox Grid.Column="2" ItemsSource="{Binding CloseBehaviorOptions}" SelectedItem="{Binding SelectedCloseBehavior}"
+                      MinWidth="170" VerticalAlignment="Center">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:CloseBehaviorOption">
+                  <TextBlock Text="{Binding Label}"/>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- 功能开关分组 -->
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="card-title" Text="功能" Margin="0,0,0,8"/>
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.Settings}"
+                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="功能开关"/>
+              <TextBlock Classes="secondary" Text="选择哪些功能出现在界面中"/>
+            </StackPanel>
+            <Button Grid.Column="2" Content="编辑…" VerticalAlignment="Center"
+                    ToolTip.Tip="打开功能开关面板"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenFeaturePanelCommand}"/>
+          </Grid>
         </StackPanel>
       </Border>
 
@@ -57,7 +93,7 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="下载目录"/>
               <TextBlock Classes="secondary" Text="文件保存到本地的位置"/>
@@ -72,23 +108,48 @@
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="单任务连接数"/>
               <TextBlock Classes="secondary" Text="每个文件拆成几段同时下载（1-64），重启后生效"/>
             </StackPanel>
             <TextBox Grid.Column="2" Text="{Binding Aria2Connections}" MinWidth="80" VerticalAlignment="Center"/>
           </Grid>
+          <TextBlock Classes="tertiary" FontSize="11" Margin="0,-4,0,0"
+                     IsVisible="{Binding Aria2Hint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     Text="{Binding Aria2Hint}" TextWrapping="Wrap"/>
 
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
                       Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{StaticResource TextSecondaryBrush}"/>
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="同时下载数"/>
               <TextBlock Classes="secondary" Text="队列里同时进行的任务个数（1-20），重启后生效"/>
             </StackPanel>
             <TextBox Grid.Column="2" Text="{Binding Aria2MaxConcurrent}" MinWidth="80" VerticalAlignment="Center"/>
+          </Grid>
+
+          <!-- 浏览器接管 -->
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.CloudArrowDown}"
+                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="浏览器接管"/>
+              <TextBlock Classes="secondary" Text="网盘网页端的下载行为接入 Pandre（代替跳转至官方客户端）"/>
+              <TextBlock Classes="tertiary" FontSize="11" Margin="0,2,0,0"
+                         IsVisible="{Binding TakeoverStatus, Converter={x:Static ObjectConverters.IsNotNull}}"
+                         Text="{Binding TakeoverStatus}" TextWrapping="Wrap"/>
+            </StackPanel>
+            <Grid Grid.Column="2" ColumnDefinitions="Auto,Auto" VerticalAlignment="Center">
+              <Button Grid.Column="0" Content="安装扩展" Margin="0,0,10,0"
+                      IsVisible="{Binding TakeoverEnabled}"
+                      Click="OnInstallExtensionClick"
+                      ToolTip.Tip="把扩展文件写到 AppData 并打开所在文件夹"/>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding TakeoverEnabled}"
+                            OnContent="" OffContent=""/>
+            </Grid>
           </Grid>
         </StackPanel>
       </Border>
@@ -97,7 +158,41 @@
       <Border Classes="card">
         <StackPanel Spacing="4">
           <TextBlock Classes="card-title" Text="关于" Margin="0,0,0,8"/>
-          <TextBlock Classes="secondary" Text="盘多录 Pandre · GPL-3.0 · 聚合百度网盘与夸克网盘" TextWrapping="Wrap"/>
+
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,6">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.PandreMarkHollow}"
+                      Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,14,0"
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+              <TextBlock Text="盘多录 Pandre"/>
+              <TextBlock Classes="secondary" FontSize="11" Margin="0,2,0,0"
+                         Text="GPL-3.0 · 聚合百度网盘与夸克网盘"/>
+            </StackPanel>
+            <Button Grid.Column="2" VerticalAlignment="Center" Tag="repo" Click="OnOpenLinkClick"
+                    ToolTip.Tip="在浏览器中打开 GitHub 仓库">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{x:Static local:AppIcons.OpenInNew}" Width="14" Height="14"/>
+                <TextBlock Text="GitHub 仓库" FontSize="12"/>
+              </StackPanel>
+            </Button>
+          </Grid>
+
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,6">
+            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.Person}"
+                      Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,14,0"
+                      Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+              <TextBlock Text="OMSociety"/>
+              <TextBlock Classes="secondary" FontSize="11" Margin="0,2,0,0" Text="开发者"/>
+            </StackPanel>
+            <Button Grid.Column="2" VerticalAlignment="Center" Tag="author" Click="OnOpenLinkClick"
+                    ToolTip.Tip="在浏览器中打开开发者主页">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{x:Static local:AppIcons.OpenInNew}" Width="14" Height="14"/>
+                <TextBlock Text="开发者主页" FontSize="12"/>
+              </StackPanel>
+            </Button>
+          </Grid>
         </StackPanel>
       </Border>
 

@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
 
 namespace Pandre.Core;
 
@@ -37,9 +39,46 @@ public static class PanHttp
             UseCookies = true,
             AutomaticDecompression = DecompressionMethods.All,
         };
-        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(timeoutSec) };
+        var client = new HttpClient(new CharsetFixHandler(handler)) { Timeout = TimeSpan.FromSeconds(timeoutSec) };
         client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", userAgent);
         return client;
+    }
+
+    /// <summary>
+    /// 百度若干端点把 Content-Type 写成 charset=utf8（无连字符），.NET 的 Encoding.GetEncoding("utf8")
+    /// 不认这个别名，HttpClient.GetStringAsync 会直接抛
+    /// "The character set provided in ContentType is invalid / 'utf8' is not a supported encoding name"。
+    /// 在管道里统一改写成 .NET 认识的写法，免得每个调用点各自兜底（CreateFolderAsync 曾因此必失败）。
+    /// </summary>
+    private sealed class CharsetFixHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var resp = await base.SendAsync(request, ct).ConfigureAwait(false);
+            var contentType = resp.Content.Headers.ContentType;
+            var charset = contentType?.CharSet;
+            if (contentType?.MediaType is not { } mediaType || string.IsNullOrEmpty(charset)) return resp;
+            var normalized = NormalizeCharset(charset);
+            if (normalized != null)
+                resp.Content.Headers.ContentType = new MediaTypeHeaderValue(mediaType) { CharSet = normalized };
+            return resp;
+        }
+
+        /// <summary>已认识的编码返回 null（不动）；别名归一；其余按 UTF-8（两盘接口实际都是 UTF-8）。</summary>
+        private static string? NormalizeCharset(string charset)
+        {
+            try { Encoding.GetEncoding(charset); return null; }
+            catch (ArgumentException) { }
+            return charset.Replace("-", "").Replace("_", "").Trim().ToLowerInvariant() switch
+            {
+                "utf8" => "utf-8",
+                "utf16" => "utf-16",
+                "utf16le" => "utf-16",
+                "utf16be" => "utf-16BE",
+                "utf32" => "utf-32",
+                _ => "utf-8",
+            };
+        }
     }
 
     /// <summary>把 "k1=v1; k2=v2" 形式的 Cookie 串种进 jar（按主机逐一登记，合并去重由 jar 负责）。</summary>

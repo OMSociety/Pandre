@@ -32,19 +32,19 @@
           <TextBlock Text="新建文件夹" VerticalAlignment="Center"/>
         </StackPanel>
       </Button>
-      <Button Margin="0,0,8,0" Command="{Binding SaveShareCommand}" IsVisible="{Binding !IsBaidu}" ToolTip.Tip="转存外部分享链接到当前目录">
+      <Button Margin="0,0,8,0" Command="{Binding SaveShareCommand}" IsVisible="{Binding ShowSaveShareButton}" ToolTip.Tip="转存外部分享链接到当前目录">
         <StackPanel Orientation="Horizontal" Spacing="6">
           <PathIcon Data="{x:Static local:AppIcons.Add}" Width="15" Height="15" VerticalAlignment="Center"/>
           <TextBlock Text="转存" VerticalAlignment="Center"/>
         </StackPanel>
       </Button>
-      <Button Margin="0,0,8,0" Command="{Binding OfflineDownloadCommand}" IsVisible="{Binding IsBaidu}" ToolTip.Tip="百度离线下载（magnet/ed2k）">
+      <Button Margin="0,0,8,0" Command="{Binding OfflineDownloadCommand}" IsVisible="{Binding ShowOfflineDownloadButton}" ToolTip.Tip="百度离线下载（magnet/ed2k）">
         <StackPanel Orientation="Horizontal" Spacing="6">
           <PathIcon Data="{x:Static local:AppIcons.CloudArrowDown}" Width="15" Height="15" VerticalAlignment="Center"/>
           <TextBlock Text="离线下载" VerticalAlignment="Center"/>
         </StackPanel>
       </Button>
-      <Button Margin="0,0,8,0" Command="{Binding ShareManageCommand}" ToolTip.Tip="管理我的分享（列表/复制/取消）">
+      <Button Margin="0,0,8,0" Command="{Binding ShareManageCommand}" IsVisible="{Binding ShowShareManageButton}" ToolTip.Tip="管理我的分享（列表/复制/取消）">
         <StackPanel Orientation="Horizontal" Spacing="6">
           <PathIcon Data="{x:Static local:AppIcons.Share}" Width="15" Height="15" VerticalAlignment="Center"/>
           <TextBlock Text="分享管理" VerticalAlignment="Center"/>
