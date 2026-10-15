@@ -27,20 +27,44 @@ public sealed class Aria2Engine : IDisposable
         throw new FileNotFoundException("找不到 aria2c.exe（约定位置: " + besideApp + "）");
     }
 
+    /// <summary>
+    /// 启动 aria2c 并等 RPC 就绪（最多 10 秒）。
+    /// 同步等待发生在 Task.Run 启动链上（非 UI 线程），不会死锁。
+    /// FreePort 与 aria2 实际绑定之间有竞态窗口：进程立即退出（端口被占/参数错）时换端口重试，最多 3 次。
+    /// </summary>
     public void Start(string? exePath = null, int connections = 16, int maxConcurrent = 5)
     {
         if (_proc != null) return;
         var exe = ResolveExePath(exePath);
         _secret = Convert.ToHexString(Guid.NewGuid().ToByteArray()).ToLowerInvariant();
-        var port = FreePort();
-        _rpcUrl = $"http://127.0.0.1:{port}/jsonrpc";
 
-        _proc = new Process
+        for (var attempt = 1; ; attempt++)
+        {
+            var port = FreePort();
+            _rpcUrl = $"http://127.0.0.1:{port}/jsonrpc";
+            _proc = SpawnProcess(exe, port, connections, maxConcurrent);
+            try
+            {
+                WaitRpcReady();
+                break;
+            }
+            catch when (attempt < 3)
+            {
+                _proc.Dispose();
+                _proc = null;
+            }
+        }
+    }
+
+    private Process SpawnProcess(string exe, int port, int connections, int maxConcurrent)
+    {
+        var proc = new Process
         {
             StartInfo = new ProcessStartInfo(exe,
                 $"--enable-rpc --rpc-listen-all=false --rpc-listen-port={port} --rpc-secret={_secret} " +
                 $"--max-connection-per-server={connections} --split={connections} --max-concurrent-downloads={maxConcurrent} " +
-                "--continue=true --max-tries=5 --retry-wait=2 " +
+                "--continue=true --allow-overwrite=true " +
+                "--max-tries=5 --retry-wait=2 " +
                 "--file-allocation=none --summary-interval=0 --show-console-readout=false")
             {
                 UseShellExecute = false,
@@ -50,17 +74,21 @@ public sealed class Aria2Engine : IDisposable
             },
             EnableRaisingEvents = true,
         };
-        _proc.Start();
-        _proc.BeginOutputReadLine();   // 丢弃输出，防管道堵死
-        _proc.BeginErrorReadLine();
+        proc.Start();
+        proc.BeginOutputReadLine();   // 丢弃输出，防管道堵死
+        // stderr 留诊断：不堵管道的同时写调试输出，aria2 启动失败/下载错误可查
+        proc.ErrorDataReceived += (_, e) => { if (e.Data != null) Debug.WriteLine("[aria2] " + e.Data); };
+        proc.BeginErrorReadLine();
+        return proc;
+    }
 
+    private void WaitRpcReady()
+    {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-
-        // 等 RPC 就绪（最多 10 秒）
         var deadline = DateTime.Now.AddSeconds(10);
         for (;;)
         {
-            if (_proc.HasExited) throw new InvalidOperationException("aria2c 启动失败");
+            if (_proc!.HasExited) throw new InvalidOperationException("aria2c 启动失败");
             try
             {
                 CallAsync("aria2.getVersion").GetAwaiter().GetResult();
