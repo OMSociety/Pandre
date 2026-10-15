@@ -38,9 +38,15 @@ public sealed class CredentialStore : ICredentialStore
     {
         var plain = JsonSerializer.SerializeToUtf8Bytes(credential);
         var payload = Protect(plain);
-        var tmp = PathFor(credential.Provider) + ".tmp";
-        await File.WriteAllBytesAsync(tmp, payload, ct);
-        File.Move(tmp, PathFor(credential.Provider), overwrite: true);
+        var target = PathFor(credential.Provider);
+        var tmp = target + ".tmp";
+        await File.WriteAllBytesAsync(tmp, payload, ct).ConfigureAwait(false);
+        File.Move(tmp, target, overwrite: true);
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // 非 Windows 降级为明文文件时收紧为 0600，仅属主可读写（Keychain/libsecret P3 接入）
+            File.SetUnixFileMode(target, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
     }
 
     public async Task<PanCredential?> LoadAsync(PanProvider provider, CancellationToken ct = default)
@@ -49,7 +55,7 @@ public sealed class CredentialStore : ICredentialStore
         if (!File.Exists(path)) return null;
         try
         {
-            var payload = await File.ReadAllBytesAsync(path, ct);
+            var payload = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
             var plain = Unprotect(payload);
             return JsonSerializer.Deserialize<PanCredential>(plain);
         }

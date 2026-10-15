@@ -18,6 +18,9 @@ public sealed class BaiduPanClient : IPanClient
     private HttpClient? _http;
     private string? _nickname;
 
+    /// <summary>下载链有效期经验值：dlink 有时效，过期需重取。</summary>
+    private static readonly TimeSpan DownloadLinkTtl = TimeSpan.FromHours(4);
+
     public PanProvider Provider => PanProvider.Baidu;
     public bool IsAuthenticated => _http != null;
 
@@ -25,6 +28,7 @@ public sealed class BaiduPanClient : IPanClient
     {
         if (credential.Provider != PanProvider.Baidu)
             throw new ArgumentException("凭据提供方不匹配", nameof(credential));
+        Dispose(); // 重复 Attach 先释放旧客户端，避免泄漏
         _jar = PanHttp.SeedCookies(credential.Cookie, PanHttp.BaiduCookieHosts);
         _http = PanHttp.CreateClient(_jar, PanHttp.BrowserUa);
         _http.DefaultRequestHeaders.Referrer = new Uri("https://pan.baidu.com/disk/home");
@@ -36,18 +40,22 @@ public sealed class BaiduPanClient : IPanClient
 
     private HttpClient Http => _http ?? throw new InvalidOperationException("未登录：先 Attach");
 
-    /// <summary>errno != 0 时抛出；-6/110 为登录态失效。</summary>
+    /// <summary>errno != 0 时抛出；-6/110 为登录态失效。响应缺 errno 字段时在错误信息里标注。</summary>
     private static void ThrowIfErrno(JsonElement root, string op)
     {
-        var errno = root.TryGetProperty("errno", out var e) ? e.GetInt32() : 0;
+        var hasErrno = root.TryGetProperty("errno", out var e);
+        var errno = hasErrno ? e.GetInt32() : 0;
         if (errno != 0)
-            throw new PanException($"百度{op}失败 errno={errno}", errno);
+        {
+            var missing = !hasErrno ? "（响应缺 errno 包络字段）" : "";
+            throw new PanException($"百度{op}失败 errno={errno}{missing}", errno);
+        }
     }
 
     public async Task<PanAccountInfo> GetAccountAsync(CancellationToken ct = default)
     {
         var root = JsonDocument.Parse(await Http.GetStringAsync(
-            $"{ApiBase}/api/quota?checkfree=1&checkexpire=1", ct)).RootElement;
+            $"{ApiBase}/api/quota?checkfree=1&checkexpire=1", ct).ConfigureAwait(false)).RootElement;
         ThrowIfErrno(root, "配额查询");
         return new PanAccountInfo(
             _nickname,
@@ -63,7 +71,7 @@ public sealed class BaiduPanClient : IPanClient
         for (var page = 1; ; page++)
         {
             var url = $"{ApiBase}/api/list?dir={Uri.EscapeDataString(dirPath)}&order=name&desc=0&num=1000&page={page}&web=1";
-            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct)).RootElement;
+            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct).ConfigureAwait(false)).RootElement;
             ThrowIfErrno(root, "列目录");
             var list = root.GetProperty("list");
             if (list.GetArrayLength() == 0) break;
@@ -80,7 +88,7 @@ public sealed class BaiduPanClient : IPanClient
         for (var page = 1; ; page++)
         {
             var url = $"{ApiBase}/api/search?key={Uri.EscapeDataString(keyword)}&recursion=1&num=200&page={page}&web=1";
-            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct)).RootElement;
+            var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct).ConfigureAwait(false)).RootElement;
             ThrowIfErrno(root, "搜索");
             var list = root.GetProperty("list");
             if (list.GetArrayLength() == 0) break;
@@ -97,7 +105,7 @@ public sealed class BaiduPanClient : IPanClient
         var cookie = ExportCookie() ?? throw new InvalidOperationException("未登录");
         var targets = JsonSerializer.Serialize(files.Select(f => f.Path).ToArray());
         var url = $"{ApiBase}/api/filemetas?dlink=1&target={Uri.EscapeDataString(targets)}";
-        var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct)).RootElement;
+        var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct).ConfigureAwait(false)).RootElement;
         ThrowIfErrno(root, "取下载链");
 
         var headers = new Dictionary<string, string>
@@ -105,7 +113,9 @@ public sealed class BaiduPanClient : IPanClient
             ["User-Agent"] = PanHttp.BaiduNetdiskUa,
             ["Cookie"] = cookie,
         };
-        var byPath = files.ToDictionary(f => f.Path);
+        var byPath = new Dictionary<string, PanFile>();
+        foreach (var f in files)
+            byPath[f.Path] = f; // 重路径允许（UI 可能有重复行），取后者
         var links = new List<PanDownloadLink>();
         // 注意：filemetas 的条目在 info 数组下（不是 list）
         foreach (var it in root.GetProperty("info").EnumerateArray())
@@ -115,8 +125,10 @@ public sealed class BaiduPanClient : IPanClient
             if (!it.TryGetProperty("dlink", out var dl) || dl.ValueKind != JsonValueKind.String) continue;
             var dlink = dl.GetString()!;
             if (byPath.TryGetValue(path, out var file))
-                links.Add(new PanDownloadLink(file, dlink, headers, DateTimeOffset.Now.AddHours(4)));
+                links.Add(new PanDownloadLink(file, dlink, headers, DateTimeOffset.Now + DownloadLinkTtl));
         }
+        if (links.Count < files.Count)
+            throw new PanException($"百度取下载链不完整：请求 {files.Count} 个，仅返回 {links.Count} 个");
         return links;
     }
 
@@ -142,7 +154,7 @@ public sealed class BaiduPanClient : IPanClient
     private async Task<long> GetUkAsync(CancellationToken ct)
     {
         var root = JsonDocument.Parse(await Http.GetStringAsync(
-            $"{ApiBase}/api/user/getinfo?need_selfinfo=1", ct)).RootElement;
+            $"{ApiBase}/api/user/getinfo?need_selfinfo=1", ct).ConfigureAwait(false)).RootElement;
         ThrowIfErrno(root, "取uk");
         return root.GetProperty("records")[0].GetProperty("uk").GetInt64();
     }
@@ -161,7 +173,7 @@ public sealed class BaiduPanClient : IPanClient
         var sliceLeft = SliceMd5Size;
         var readBuf = new byte[1024 * 1024];
         int n;
-        while ((n = await fs.ReadAsync(readBuf, ct)) > 0)
+        while ((n = await fs.ReadAsync(readBuf, ct).ConfigureAwait(false)) > 0)
         {
             contentHasher.AppendData(readBuf, 0, n);
             if (sliceLeft > 0)
@@ -206,8 +218,8 @@ public sealed class BaiduPanClient : IPanClient
         var blockSize = BlockSize(fileSize);
 
         progress?.Report(new(fileSize, 0, 0, 0, "计算哈希"));
-        var (contentMd5, sliceMd5, blockList) = await HashFileAsync(localPath, blockSize, ct);
-        var uk = await GetUkAsync(ct);
+        var (contentMd5, sliceMd5, blockList) = await HashFileAsync(localPath, blockSize, ct).ConfigureAwait(false);
+        var uk = await GetUkAsync(ct).ConfigureAwait(false);
         var now = DateTimeOffset.Now.ToUnixTimeSeconds();
 
         // data_offset 算法：MD5(uk + contentMd5 + dataTime) 前8hex→uint → % (size-4096+1)
@@ -222,7 +234,7 @@ public sealed class BaiduPanClient : IPanClient
             await using var fs = File.OpenRead(localPath);
             fs.Seek(dataOffset, SeekOrigin.Begin);
             var buf = new byte[Math.Min(DataContentSize, fileSize - dataOffset)];
-            dataLength = await fs.ReadAsync(buf, ct);
+            dataLength = await fs.ReadAsync(buf, ct).ConfigureAwait(false);
             dataContent = Convert.ToBase64String(buf, 0, dataLength).TrimEnd('=');
         }
         var blockListJson = "[\"" + string.Join("\",\"", blockList) + "\"]";
@@ -249,8 +261,8 @@ public sealed class BaiduPanClient : IPanClient
             ["block_list"] = blockListJson,
             ["mode"] = "1",
         });
-        var preResp = await Http.PostAsync($"{ApiBase}/api/precreate", precreateForm, ct);
-        var preText = await preResp.Content.ReadAsStringAsync(ct);
+        var preResp = await Http.PostAsync($"{ApiBase}/api/precreate", precreateForm, ct).ConfigureAwait(false);
+        var preText = await preResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         var preRoot = JsonDocument.Parse(preText).RootElement;
         ThrowIfErrno(preRoot, "上传-预创建");
         var returnType = preRoot.TryGetProperty("return_type", out var rt) ? rt.GetInt32() : 1;
@@ -261,7 +273,7 @@ public sealed class BaiduPanClient : IPanClient
             var info = preRoot.TryGetProperty("info", out var inf) && inf.ValueKind == JsonValueKind.Object
                 ? inf : preRoot;
             try { return new PanUploadResult(true, MapFile(info)); }
-            catch (Exception) when (!preText.Contains("\"潘德调试\""))
+            catch (Exception)
             {
                 throw new PanException($"百度上传-秒传响应字段不符：{preText[..Math.Min(preText.Length, 500)]}");
             }
@@ -273,7 +285,7 @@ public sealed class BaiduPanClient : IPanClient
 
         // ---- 步骤0：取上传服务器（locateupload，主机名含 '-' 优先）----
         var locRoot = JsonDocument.Parse(await Http.GetStringAsync(
-            $"https://pcs.baidu.com/rest/2.0/pcs/file?app_id={PanAppId}&method=locateupload&upload_version=2.0", ct)).RootElement;
+            $"https://pcs.baidu.com/rest/2.0/pcs/file?app_id={PanAppId}&method=locateupload&upload_version=2.0", ct).ConfigureAwait(false)).RootElement;
         var pcsHost = "pcs.baidu.com";
         if (locRoot.TryGetProperty("servers", out var servers))
             foreach (var s in servers.EnumerateArray())
@@ -298,7 +310,7 @@ public sealed class BaiduPanClient : IPanClient
                 fs.Seek(partOffset, SeekOrigin.Begin);
                 var read = 0;
                 while (read < partLen)
-                    read += await fs.ReadAsync(partBuf.AsMemory(read, partLen - read), ct);
+                    read += await fs.ReadAsync(partBuf.AsMemory(read, partLen - read), ct).ConfigureAwait(false);
 
                 using var content = new MultipartFormDataContent();
                 // 字段必须带文件名（BaiduPCS-Go：name="file"; filename="blob"），不带文件名会被边缘直接 RST
@@ -311,9 +323,9 @@ public sealed class BaiduPanClient : IPanClient
                 using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
                 req.Headers.TryAddWithoutValidation("User-Agent", PanHttp.BaiduNetdiskClientUa);
                 req.Headers.ExpectContinue = false; // .NET 默认发 100-continue，百度边缘不吃
-                var resp = await Http.SendAsync(req, ct);
+                var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
                 // PCS 回包 charset=utf8（无连字符）.NET 不认，手动解码
-                var text = Encoding.UTF8.GetString(await resp.Content.ReadAsByteArrayAsync(ct));
+                var text = Encoding.UTF8.GetString(await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false));
                 using var doc = JsonDocument.Parse(text);
                 var root = doc.RootElement;
                 if (root.TryGetProperty("error_code", out var ec) && ec.GetInt32() != 0)
@@ -337,8 +349,8 @@ public sealed class BaiduPanClient : IPanClient
             ["block_list"] = blockListJson,
             ["target_path"] = targetDirPath, // 合并的 target_path 不带结尾 "/"
         });
-        var createResp = await Http.PostAsync($"{ApiBase}/api/create", createForm, ct);
-        var createText = await createResp.Content.ReadAsStringAsync(ct);
+        var createResp = await Http.PostAsync($"{ApiBase}/api/create", createForm, ct).ConfigureAwait(false);
+        var createText = await createResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         var createRoot = JsonDocument.Parse(createText).RootElement;
         ThrowIfErrno(createRoot, "上传-合并");
         if (!createRoot.TryGetProperty("fs_id", out _))
@@ -371,7 +383,7 @@ public sealed class BaiduPanClient : IPanClient
 
     // 百度各端点回包常标 charset=utf8（无连字符），ReadAsStringAsync 会炸，统一手动解码
     private static async Task<string> ReadUtf8Async(HttpContent content, CancellationToken ct) =>
-        Encoding.UTF8.GetString(await content.ReadAsByteArrayAsync(ct));
+        Encoding.UTF8.GetString(await content.ReadAsByteArrayAsync(ct).ConfigureAwait(false));
 
     private async Task PcsFileOpAsync(string method, object listPayload, string op, CancellationToken ct)
     {
@@ -379,8 +391,8 @@ public sealed class BaiduPanClient : IPanClient
         var paramJson = JsonSerializer.Serialize(new { list = listPayload });
         content.Add(new StringContent(paramJson, Encoding.UTF8), "param");
         var url = $"https://pcs.baidu.com/rest/2.0/pcs/file?app_id={PcsAppId}&method={method}";
-        var resp = await Http.PostAsync(url, content, ct);
-        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct)).RootElement;
+        var resp = await Http.PostAsync(url, content, ct).ConfigureAwait(false);
+        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct).ConfigureAwait(false)).RootElement;
         // PCS 端点错误包裹 error_code；errno 包裹也兼容
         if (root.TryGetProperty("error_code", out var ec) && ec.GetInt32() != 0)
         {
@@ -397,11 +409,13 @@ public sealed class BaiduPanClient : IPanClient
         if (parentPath == "") parentPath = "/";
         var path = (parentPath == "/" ? "" : parentPath) + "/" + name;
         var root = JsonDocument.Parse(await Http.GetStringAsync(
-            $"https://pcs.baidu.com/rest/2.0/pcs/file?app_id={PcsAppId}&method=mkdir&path={Uri.EscapeDataString(path)}", ct)).RootElement;
+            $"https://pcs.baidu.com/rest/2.0/pcs/file?app_id={PcsAppId}&method=mkdir&path={Uri.EscapeDataString(path)}", ct).ConfigureAwait(false)).RootElement;
         if (root.TryGetProperty("error_code", out var ec) && ec.GetInt32() != 0)
             throw new PanException($"百度新建文件夹失败 error_code={ec.GetInt32()}", ec.GetInt32());
+        if (!root.TryGetProperty("fs_id", out var fidEl))
+            throw new PanException("百度新建文件夹响应缺 fs_id");
         return new PanFile(
-            root.TryGetProperty("fs_id", out var fid) ? fid.GetInt64().ToString() : "0",
+            fidEl.GetInt64().ToString(),
             path, name, 0, true, DateTimeOffset.Now, null, PanProvider.Baidu);
     }
 
@@ -410,7 +424,7 @@ public sealed class BaiduPanClient : IPanClient
         var parentDir = file.Path.Contains('/') ? file.Path[..file.Path.LastIndexOf('/')] : "";
         if (parentDir == "") parentDir = "/";
         var to = (parentDir == "/" ? "" : parentDir) + "/" + newName;
-        await PcsFileOpAsync("move", new[] { new { from = file.Path, to } }, "重命名", ct);
+        await PcsFileOpAsync("move", new[] { new { from = file.Path, to } }, "重命名", ct).ConfigureAwait(false);
     }
 
     public async Task MoveAsync(IReadOnlyList<PanFile> files, PanFile? targetDir, CancellationToken ct = default)
@@ -422,13 +436,26 @@ public sealed class BaiduPanClient : IPanClient
             from = f.Path,
             to = (targetPath == "/" ? "" : targetPath) + "/" + f.Name,
         }).ToArray();
-        await PcsFileOpAsync("move", payload, "移动", ct);
+        await PcsFileOpAsync("move", payload, "移动", ct).ConfigureAwait(false);
+    }
+
+    public async Task CopyAsync(IReadOnlyList<PanFile> files, PanFile? targetDir, CancellationToken ct = default)
+    {
+        // PCS file method=copy：与 move 同构（from/to 路径对）
+        var targetPath = (targetDir?.Path ?? "/").TrimEnd('/');
+        if (targetPath == "") targetPath = "/";
+        var payload = files.Select(f => new
+        {
+            from = f.Path,
+            to = (targetPath == "/" ? "" : targetPath) + "/" + f.Name,
+        }).ToArray();
+        await PcsFileOpAsync("copy", payload, "复制", ct).ConfigureAwait(false);
     }
 
     public async Task DeleteAsync(IReadOnlyList<PanFile> files, CancellationToken ct = default)
     {
         var payload = files.Select(f => new { path = f.Path }).ToArray();
-        await PcsFileOpAsync("delete", payload, "删除", ct);
+        await PcsFileOpAsync("delete", payload, "删除", ct).ConfigureAwait(false);
     }
 
     // ============ P2：分享（share/pset 私密分享；百度现行只发带提取码的，未指定时随机生成 4 位） ============
@@ -454,8 +481,8 @@ public sealed class BaiduPanClient : IPanClient
             ["pwd"] = pwd,
             ["share_type"] = "9",
         });
-        var resp = await Http.PostAsync("https://pan.baidu.com/share/pset", body, ct);
-        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct)).RootElement;
+        var resp = await Http.PostAsync("https://pan.baidu.com/share/pset", body, ct).ConfigureAwait(false);
+        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct).ConfigureAwait(false)).RootElement;
         if (root.TryGetProperty("errno", out var en) && en.GetInt32() != 0)
             throw new PanException($"百度创建分享失败 errno={en.GetInt32()}", en.GetInt32());
         var link = root.GetProperty("link").GetString()!;
@@ -467,7 +494,6 @@ public sealed class BaiduPanClient : IPanClient
             PanProvider.Baidu);
     }
 
-    /// <summary>我的分享列表（share/record，时间倒序；不含提取码——百度要查得逐个调 share/surlinfo，不做）。</summary>
     // ============ P2：转存（share/verify → 分享页 locals.mset → share/transfer，规格交叉验证 hxz393/BaiduPCS-Go/drunkdream） ============
 
     private string? _bdstoken;
@@ -477,7 +503,7 @@ public sealed class BaiduPanClient : IPanClient
         if (_bdstoken != null) return _bdstoken;
         var fields = Uri.EscapeDataString("[\"bdstoken\"]");
         var root = JsonDocument.Parse(await Http.GetStringAsync(
-            $"{ApiBase}/api/gettemplatevariable?clienttype=0&app_id=38824127&web=1&fields={fields}", ct)).RootElement;
+            $"{ApiBase}/api/gettemplatevariable?clienttype=0&app_id=38824127&web=1&fields={fields}", ct).ConfigureAwait(false)).RootElement;
         ThrowIfErrno(root, "取 bdstoken");
         _bdstoken = root.GetProperty("result").GetProperty("bdstoken").GetString()
             ?? throw new PanException("百度转存-bdstoken 为空");
@@ -506,8 +532,8 @@ public sealed class BaiduPanClient : IPanClient
         // ProductInfo 解析器拒收分号富 UA，必须走不校验通道
         req.Headers.TryAddWithoutValidation("User-Agent", PanHttp.BaiduNetdiskClientUa);
         req.Headers.Referrer = new Uri("https://pan.baidu.com/s/");
-        using var resp = await Http.SendAsync(req, ct);
-        return await resp.Content.ReadAsStringAsync(ct);
+        using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+        return await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
     }
 
     /// <summary>从分享页 HTML 提取 locals.mset(...) 的参数 JSON（花括号配平，兼容多行与嵌套）。</summary>
@@ -551,19 +577,24 @@ public sealed class BaiduPanClient : IPanClient
         if (!key.StartsWith('1')) key = "1" + key;
 
         ClearCookie("BDCLND");   // 上个链接的提取码 cookie 会串味，先剥掉（drunkdream 实证）
-        var bdstoken = await GetBdstokenAsync(ct);
+        var bdstoken = await GetBdstokenAsync(ct).ConfigureAwait(false);
         var surl = key[1..];     // verify 的 surl 参数不带首字符 '1'（hxz393 口径）
 
-        // 1. 验证提取码（可选）：randsk 只走 Cookie BDCLND，无 query 参数
+        // 1. 验证提取码（可选）：randsk 只走 Cookie BDCLND，无 query 参数。
+        //    Referer 必须显式设为分享页——客户端默认 Referer 是 disk/home，会话上下文不符服务端可能按参数错误拒（errno=2）。
         if (!string.IsNullOrEmpty(passcode))
         {
             var t = DateTimeOffset.Now.ToUnixTimeMilliseconds();
             var vUrl = $"{ApiBase}/share/verify?surl={surl}&bdstoken={bdstoken}&t={t}" +
                        $"&channel=chunlei&web=1&clienttype=0&app_id={PanAppId}";
-            var vResp = await Http.PostAsync(vUrl,
-                new FormUrlEncodedContent(new Dictionary<string, string>
-                { ["pwd"] = passcode, ["vcode"] = "", ["vcode_str"] = "" }), ct);
-            var vRoot = JsonDocument.Parse(await vResp.Content.ReadAsStringAsync(ct)).RootElement;
+            using var vReq = new HttpRequestMessage(HttpMethod.Post, vUrl)
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                { ["pwd"] = passcode, ["vcode"] = "", ["vcode_str"] = "" }),
+                Headers = { Referrer = new Uri($"https://pan.baidu.com/s/{key}") },
+            };
+            var vResp = await Http.SendAsync(vReq, ct).ConfigureAwait(false);
+            var vRoot = JsonDocument.Parse(await vResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false)).RootElement;
             var verrno = vRoot.TryGetProperty("errno", out var ve) ? ve.GetInt32() : -1;
             if (verrno != 0)
                 throw new PanException(verrno is -9 or -12 ? "提取码错误" : $"验证提取码失败 errno={verrno}", verrno);
@@ -573,7 +604,7 @@ public sealed class BaiduPanClient : IPanClient
         }
 
         // 2. 分享页 locals.mset → shareid / share_uk / 根层 fs_id 列表
-        var html = await GetSharePageHtml($"https://pan.baidu.com/s/{key}", ct);
+        var html = await GetSharePageHtml($"https://pan.baidu.com/s/{key}", ct).ConfigureAwait(false);
         if (html.Contains("platform-non-found") || html.Contains("error-404"))
             throw new PanException("分享已失效或不存在");
         var msetJson = ExtractLocalsMset(html);
@@ -597,8 +628,8 @@ public sealed class BaiduPanClient : IPanClient
                     $"&channel=chunlei&web=1&clienttype=0&app_id={PanAppId}&ondup=newcopy";
         var trResp = await Http.PostAsync(trUrl,
             new FormUrlEncodedContent(new Dictionary<string, string>
-            { ["fsidlist"] = "[" + string.Join(",", fsIds) + "]", ["path"] = targetPath }), ct);
-        var trRoot = JsonDocument.Parse(await trResp.Content.ReadAsStringAsync(ct)).RootElement;
+            { ["fsidlist"] = "[" + string.Join(",", fsIds) + "]", ["path"] = targetPath }), ct).ConfigureAwait(false);
+        var trRoot = JsonDocument.Parse(await trResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false)).RootElement;
         var terrno = trRoot.TryGetProperty("errno", out var te) ? te.GetInt32() : -1;
         if (terrno != 0)
             throw new PanException(terrno switch
@@ -611,20 +642,34 @@ public sealed class BaiduPanClient : IPanClient
                 111 => "请求过快，请稍后重试",
                 _ => $"转存失败 errno={terrno}",
             }, terrno);
-        var saved = trRoot.TryGetProperty("info", out var info) && info.ValueKind == JsonValueKind.Array
-            ? info.GetArrayLength() : fsIds.Count;
+        // 逐条 errno 计数：部分失败时只计成功条目，不虚报
+        var saved = 0;
+        if (trRoot.TryGetProperty("info", out var info) && info.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var it in info.EnumerateArray())
+                if (!it.TryGetProperty("errno", out var ie) || ie.GetInt32() == 0) saved++;
+            if (saved == 0)
+                throw new PanException("转存全部失败（服务端返回成功状态但无成功条目）");
+        }
+        else
+        {
+            saved = fsIds.Count; // 响应无 info 数组（历史形态），按请求条目数计
+        }
         return new PanSaveShareResult(targetDir?.Name ?? "根目录", saved);
     }
 
+    /// <summary>我的分享列表（share/record，时间倒序；不含提取码——百度要查得逐个调 share/surlinfo，不做）。</summary>
     public async Task<IReadOnlyList<PanShare>> ListSharesAsync(CancellationToken ct = default)
     {
-        var root = JsonDocument.Parse(await Http.GetStringAsync(
-            "https://pan.baidu.com/share/record?page=1&desc=1&order=time", ct)).RootElement;
-        if (root.TryGetProperty("errno", out var en) && en.GetInt32() != 0)
-            throw new PanException($"百度取分享列表失败 errno={en.GetInt32()}", en.GetInt32());
         var list = new List<PanShare>();
-        if (root.TryGetProperty("list", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        for (var page = 1; ; page++)
         {
+            var root = JsonDocument.Parse(await Http.GetStringAsync(
+                $"https://pan.baidu.com/share/record?page={page}&desc=1&order=time", ct).ConfigureAwait(false)).RootElement;
+            if (root.TryGetProperty("errno", out var en) && en.GetInt32() != 0)
+                throw new PanException($"百度取分享列表失败 errno={en.GetInt32()}", en.GetInt32());
+            if (!root.TryGetProperty("list", out var arr) || arr.ValueKind != JsonValueKind.Array) break;
+            if (arr.GetArrayLength() == 0) break;
             foreach (var it in arr.EnumerateArray())
             {
                 var title = it.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
@@ -658,14 +703,15 @@ public sealed class BaiduPanClient : IPanClient
         {
             ["shareid_list"] = "[" + string.Join(",", shareIds) + "]",
         });
-        var resp = await Http.PostAsync("https://pan.baidu.com/share/cancel", body, ct);
-        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct)).RootElement;
+        var resp = await Http.PostAsync("https://pan.baidu.com/share/cancel", body, ct).ConfigureAwait(false);
+        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct).ConfigureAwait(false)).RootElement;
         if (root.TryGetProperty("errno", out var en) && en.GetInt32() != 0)
             throw new PanException($"百度取消分享失败 errno={en.GetInt32()}", en.GetInt32());
     }
 
     // ============ P2：离线下载（cloud_dl，参数走 query 无请求体） ============
     private const string CloudDlBase = "https://pan.baidu.com/rest/2.0/services/cloud_dl";
+    private const int OfflineTaskPageSize = 100;
 
     public async Task<PanOfflineTask> AddOfflineTaskAsync(string sourceUrl, PanFile? saveDir, CancellationToken ct = default)
     {
@@ -673,8 +719,8 @@ public sealed class BaiduPanClient : IPanClient
         if (savePath == "//") savePath = "/";
         var url = $"{CloudDlBase}?method=add_task&app_id={PanAppId}&task_from=0&selected_idx=1" +
                   $"&save_path={Uri.EscapeDataString(savePath)}&source_url={Uri.EscapeDataString(sourceUrl)}";
-        var resp = await Http.PostAsync(url, null, ct);
-        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct)).RootElement;
+        var resp = await Http.PostAsync(url, null, ct).ConfigureAwait(false);
+        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct).ConfigureAwait(false)).RootElement;
         if (root.TryGetProperty("error_code", out var ec) && ec.GetInt32() != 0)
         {
             var emsg = root.TryGetProperty("error_msg", out var em) ? em.GetString() : "";
@@ -686,13 +732,16 @@ public sealed class BaiduPanClient : IPanClient
 
     public async Task<IReadOnlyList<PanOfflineTask>> ListOfflineTasksAsync(CancellationToken ct = default)
     {
-        var url = $"{CloudDlBase}?method=list_task&need_task_info=1&status=255&start=0&limit=100&app_id={PanAppId}";
-        var resp = await Http.PostAsync(url, null, ct);
-        var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct)).RootElement;
-        if (root.TryGetProperty("error_code", out var ec) && ec.GetInt32() != 0)
-            throw new PanException($"百度离线任务列表失败 error_code={ec.GetInt32()}", ec.GetInt32());
         var tasks = new List<PanOfflineTask>();
-        if (root.TryGetProperty("task_info", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        for (var start = 0; ; start += OfflineTaskPageSize)
+        {
+            var url = $"{CloudDlBase}?method=list_task&need_task_info=1&status=255&start={start}&limit={OfflineTaskPageSize}&app_id={PanAppId}";
+            var resp = await Http.PostAsync(url, null, ct).ConfigureAwait(false);
+            var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct).ConfigureAwait(false)).RootElement;
+            if (root.TryGetProperty("error_code", out var ec) && ec.GetInt32() != 0)
+                throw new PanException($"百度离线任务列表失败 error_code={ec.GetInt32()}", ec.GetInt32());
+            if (!root.TryGetProperty("task_info", out var arr) || arr.ValueKind != JsonValueKind.Array) break;
+            var count = arr.GetArrayLength();
             foreach (var it in arr.EnumerateArray())
             {
                 // cloud_dl 任务对象字段 JSON 里全是字符串
@@ -704,6 +753,8 @@ public sealed class BaiduPanClient : IPanClient
                     S(it, "task_id"), S(it, "task_name"), L(it, "file_size"), L(it, "finished_size"),
                     (int)L(it, "status"), S(it, "save_path"), S(it, "source_url"), PanProvider.Baidu));
             }
+            if (count < OfflineTaskPageSize) break;
+        }
         return tasks;
     }
 
