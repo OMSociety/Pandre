@@ -31,10 +31,6 @@ public interface IPanClient : IDisposable
     /// <summary>取下载链。链接有时效，应取得后立即交给下载器。</summary>
     Task<IReadOnlyList<PanDownloadLink>> GetDownloadLinksAsync(IReadOnlyList<PanFile> files, CancellationToken ct = default);
 
-    /// <summary>按文件 Id（百度 fs_id / 夸克 fid）直接解析下载链：浏览器接管入口用，不需要先列目录拿到 PanFile。</summary>
-    Task<IReadOnlyList<PanDownloadLink>> GetDownloadLinksByIdsAsync(IReadOnlyList<PanRemoteFileRef> refs, CancellationToken ct = default) =>
-        throw new NotSupportedException();
-
     // ============ P2：管理与分享（默认抛 NotSupported，客户端按能力覆盖） ============
 
     /// <summary>新建文件夹，返回新目录。dir=null 表示根目录。</summary>

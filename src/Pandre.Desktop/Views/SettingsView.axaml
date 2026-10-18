@@ -133,32 +133,6 @@
           <TextBlock Classes="tertiary" FontSize="11" Margin="0,-4,0,0"
                      IsVisible="{Binding Aria2MaxConcurrentHint, Converter={x:Static ObjectConverters.IsNotNull}}"
                      Text="{Binding Aria2MaxConcurrentHint}" TextWrapping="Wrap"/>
-
-          <!-- 浏览器接管 -->
-          <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
-            <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.CloudArrowDown}"
-                      Width="20" Height="20" VerticalAlignment="Top" Margin="0,4,14,0"
-                      Foreground="{DynamicResource TextSecondaryBrush}"/>
-            <StackPanel Grid.Column="1">
-              <TextBlock Text="浏览器接管"/>
-              <TextBlock Classes="secondary" Text="网盘网页端的下载行为接入 Pandre（代替跳转至官方客户端）"/>
-              <TextBlock Classes="tertiary" FontSize="11" Margin="0,2,0,0"
-                         IsVisible="{Binding TakeoverStatus, Converter={x:Static ObjectConverters.IsNotNull}}"
-                         Text="{Binding TakeoverStatus}" TextWrapping="Wrap"/>
-            </StackPanel>
-            <Grid Grid.Column="2" ColumnDefinitions="Auto,Auto,Auto" VerticalAlignment="Center">
-              <Button Grid.Column="0" Content="重新生成令牌" Margin="0,0,10,0"
-                      IsVisible="{Binding TakeoverEnabled}"
-                      Click="OnRotateTokenClick"
-                      ToolTip.Tip="换一把令牌：旧扩展配置立即失效，需要重装扩展并在浏览器扩展页重载"/>
-              <Button Grid.Column="1" Content="安装扩展" Margin="0,0,10,0"
-                      IsVisible="{Binding TakeoverEnabled}"
-                      Click="OnInstallExtensionClick"
-                      ToolTip.Tip="把扩展文件写到 AppData 并打开所在文件夹"/>
-              <ToggleSwitch Grid.Column="2" IsChecked="{Binding TakeoverEnabled}"
-                            OnContent="" OffContent=""/>
-            </Grid>
-          </Grid>
         </StackPanel>
       </Border>
 

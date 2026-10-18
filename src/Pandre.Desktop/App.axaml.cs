@@ -28,17 +28,12 @@ public partial class App : Application
             AppServices.ApplyTheme();
             AppServices.ApplyMaterial();
 
-            // 浏览器接管的本地接收入口（仅当用户在设置里开启）
-            if (AppServices.TakeoverEnabled)
-                AppServices.StartTakeover();
-
             // 恢复登录态（不阻塞出窗；continuation 回 UI 线程更新属性）
             _ = InitSafelyAsync(vm);
 
             desktop.Exit += (_, _) =>
             {
                 try { AppServices.Downloads.Dispose(); } catch { }
-                try { AppServices.Takeover.Dispose(); } catch { }
                 try { AppServices.Baidu.Dispose(); AppServices.Quark.Dispose(); } catch { }
             };
         }

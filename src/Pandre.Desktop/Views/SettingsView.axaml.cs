@@ -40,16 +40,4 @@ public partial class SettingsView : UserControl
         if (TopLevel.GetTopLevel(this)?.Launcher is not { } launcher) return;
         await launcher.LaunchUriAsync(new System.Uri(url));
     }
-
-    /// <summary>「安装扩展」：复制扩展文件到 AppData、写入端口/令牌，然后打开所在文件夹。</summary>
-    private void OnInstallExtensionClick(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is SettingsViewModel vm) vm.InstallExtension();
-    }
-
-    /// <summary>「重新生成令牌」：换锁，旧扩展 config.js 立即失效，需重装扩展。</summary>
-    private void OnRotateTokenClick(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is SettingsViewModel vm) vm.RotateToken();
-    }
 }

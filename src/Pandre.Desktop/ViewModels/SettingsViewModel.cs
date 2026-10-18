@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Pandre.Desktop.Services;
 
@@ -62,19 +61,6 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string? _aria2ConnectionsHint;
     [ObservableProperty] private string? _aria2MaxConcurrentHint;
 
-    // ---- 浏览器接管 ----
-    [ObservableProperty] private bool _takeoverEnabled;
-
-    /// <summary>接管状态说明（未启用 / 监听地址 / 启动失败原因），为 null 时整行隐藏。</summary>
-    [ObservableProperty] private string? _takeoverStatus;
-
-    /// <summary>「重新生成令牌」：换锁，旧扩展 config.js 立即失效，必须重装扩展并在浏览器重载（深审 EC-09）。</summary>
-    public void RotateToken()
-    {
-        AppServices.RotateTakeoverToken();
-        RefreshTakeoverStatus();
-    }
-
     // 功能开关已挪到独立的「界面功能开关」面板（FeaturePanelViewModel），
     // 设置页只留一个入口按钮，避免两处各持一份状态。
 
@@ -90,68 +76,6 @@ public partial class SettingsViewModel : ViewModelBase
         DownloadDir = AppServices.DownloadDir;
         Aria2Connections = AppServices.Aria2Connections.ToString();
         Aria2MaxConcurrent = AppServices.Aria2MaxConcurrent.ToString();
-        _takeoverEnabled = AppServices.TakeoverEnabled;   // 直接赋字段，避免 OnChanged 误触发
-        RefreshTakeoverStatus();
-    }
-
-    partial void OnTakeoverEnabledChanged(bool value)
-    {
-        if (value == AppServices.TakeoverEnabled) { RefreshTakeoverStatus(); return; }
-        AppServices.TakeoverEnabled = value;
-        if (value)
-        {
-            AppServices.StartTakeover();
-            try { ExtensionInstaller.Install(); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("安装扩展失败: " + ex.Message); }
-        }
-        else AppServices.StopTakeover();
-        RefreshTakeoverStatus();
-    }
-
-    /// <summary>「安装扩展」：把扩展文件复制到 AppData 并写入端口/令牌，然后打开所在文件夹。</summary>
-    public void InstallExtension()
-    {
-        try
-        {
-            var dir = ExtensionInstaller.Install();
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = dir,
-                UseShellExecute = true,
-            });
-            RefreshTakeoverStatus();
-        }
-        catch (Exception ex)
-        {
-            TakeoverStatus = "安装扩展失败：" + ex.Message;
-        }
-    }
-
-    private void RefreshTakeoverStatus()
-    {
-        if (!AppServices.TakeoverEnabled) { TakeoverStatus = null; return; }
-        if (!AppServices.Takeover.IsRunning)
-        {
-            TakeoverStatus = "接管入口启动失败（端口可能被占用），重启应用后再试。";
-            return;
-        }
-        var installed = File.Exists(Path.Combine(ExtensionInstaller.TargetDir, "config.js"));
-        // config.js 与当前应用的端口/令牌不一致时明说，不误显「运行中」（深审 EC-05）
-        var tokenMatch = false;
-        if (installed)
-        {
-            try
-            {
-                var cfg = File.ReadAllText(Path.Combine(ExtensionInstaller.TargetDir, "config.js"));
-                tokenMatch = cfg.Contains(AppServices.TakeoverToken) && cfg.Contains(AppServices.TakeoverPort.ToString());
-            }
-            catch { /* 读不到按不一致处理 */ }
-        }
-        TakeoverStatus = !installed
-            ? $"本地入口运行中：127.0.0.1:{AppServices.Takeover.Port}\n点「安装扩展」生成扩展目录，再到 chrome://extensions 加载它。"
-            : tokenMatch
-                ? $"本地入口运行中：127.0.0.1:{AppServices.Takeover.Port}\n扩展目录：AppData\\Roaming\\Pandre\\extension（chrome://extensions 加载该目录）"
-                : $"本地入口运行中：127.0.0.1:{AppServices.Takeover.Port}\n扩展目录里的 config.js 与当前应用不一致（端口或令牌变过）：点「安装扩展」重写，再到 chrome://extensions 重载扩展。";
     }
 
     partial void OnSelectedThemeChanged(ThemeOption? value)

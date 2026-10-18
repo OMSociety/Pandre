@@ -138,40 +138,6 @@ public sealed class BaiduPanClient : IPanClient
         return links;
     }
 
-    /// <summary>按 fs_id 解析下载链：filemetas 支持 fsids 参数，一次拿回 path/name/size/dlink（探针实测 errno=0）。</summary>
-    public async Task<IReadOnlyList<PanDownloadLink>> GetDownloadLinksByIdsAsync(
-        IReadOnlyList<PanRemoteFileRef> refs, CancellationToken ct = default)
-    {
-        if (refs.Count == 0) return [];
-        var cookie = ExportCookie() ?? throw new InvalidOperationException("未登录");
-        var fsids = JsonSerializer.Serialize(refs.Select(r => r.Id).ToArray());
-        var url = $"{ApiBase}/api/filemetas?fsids={Uri.EscapeDataString(fsids)}&dlink=1&web=1";
-        var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct).ConfigureAwait(false)).RootElement;
-        ThrowIfErrno(root, "取下载链");
-
-        var headers = new Dictionary<string, string>
-        {
-            ["User-Agent"] = PanHttp.BaiduNetdiskUa,
-            ["Cookie"] = cookie,
-        };
-        var links = new List<PanDownloadLink>();
-        foreach (var it in root.GetProperty("info").EnumerateArray())
-        {
-            if (it.TryGetProperty("errno", out var ierr) && ierr.GetInt32() != 0) continue;
-            if (!it.TryGetProperty("dlink", out var dl) || dl.ValueKind != JsonValueKind.String) continue;
-            var path = it.GetProperty("path").GetString()!;
-            var file = new PanFile(
-                it.GetProperty("fs_id").ToString(), path,
-                it.GetProperty("server_filename").GetString()!,
-                it.GetProperty("size").GetInt64(),
-                false, null, null, PanProvider.Baidu);
-            links.Add(new PanDownloadLink(file, dl.GetString()!, headers, DateTimeOffset.Now + DownloadLinkTtl));
-        }
-        if (links.Count < refs.Count)
-            throw new PanException($"百度取下载链不完整：请求 {refs.Count} 个，仅返回 {links.Count} 个（文件可能不属于当前账号）");
-        return links;
-    }
-
     // ============ P2：上传（规格逆向自 BaiduPCS-Go，见 docs/开发文档.md §3） ============
 
     // 分块阈值：<8GB→4MB，≥8GB→16MB，≥32GB→64MB（getBlockSize 口径）

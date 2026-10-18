@@ -32,9 +32,6 @@ public sealed record PanDownloadLink(
     IReadOnlyDictionary<string, string> Headers,
     DateTimeOffset ExpiresAt);
 
-/// <summary>浏览器接管入口报上来的文件引用：Id 为百度 fs_id / 夸克 fid；Name/Size 由页面给出（百度以服务端元数据为准）。</summary>
-public sealed record PanRemoteFileRef(string Id, string? Name, long Size);
-
 /// <summary>网盘业务异常。Code 为服务端业务码（如百度 errno、夸克 code）。</summary>
 public sealed class PanException(string message, long? code = null) : Exception(message)
 {

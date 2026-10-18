@@ -1,7 +1,7 @@
 # AGENTS.md — Pandre（盘多录）Agent 宪法
 
 适用范围：本仓库全部目录；子目录另有 AGENTS.md 时，以更接近改动点的那份为准。
-最后更新：2026-10-16
+最后更新：2026-10-19
 
 ## 项目概览
 
@@ -26,7 +26,7 @@
 dotnet build src/Pandre.Desktop/Pandre.Desktop.csproj -c Release
 ```
 
-产物在 `src/Pandre.Desktop/bin/Release/net10.0/`。aria2c 与扩展源由 csproj 从 `assets/windows/`、`assets/extension/` 拷进输出目录的 `assets/windows/`、`extension/`，改 `assets/` 后必须重新构建才生效。
+产物在 `src/Pandre.Desktop/bin/Release/net10.0/`。aria2c 由 csproj 从 `assets/windows/` 拷进输出目录的 `assets/windows/`，改 `assets/` 后必须重新构建才生效。
 
 判定构建结果要认**全量**构建：增量构建会跳过 XAML 编译错误（尤其改过 `.axaml` 时），必要时删掉 `src/Pandre.Desktop/obj`、`bin` 再构建，以全量构建的报错为准。
 
@@ -51,7 +51,6 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 | 加界面 | `src/Pandre.Desktop/Views/*.axaml` + `ViewModels/*.cs`；全局样式与资源键只改 `App.axaml` |
 | 挂网盘操作弹窗、加功能开关 | `src/Pandre.Desktop/Views/MainWindow.axaml`（窗口级 `FeatureOverlay` 与各操作弹窗）+ `ViewModels/FeaturePanelViewModel.cs`；不要挂到 `PanView` 级 |
 | 改下载行为 | `src/Pandre.Download/Aria2Engine.cs`（进程与 RPC 参数）、`src/Pandre.Download/DownloadManager.cs`（队列语义、逐任务选项） |
-| 改浏览器接管 | `assets/extension/` + `src/Pandre.Desktop/Services/TakeoverServer.cs` + `Services/ExtensionInstaller.cs` + `IPanClient.GetDownloadLinksByIdsAsync`（四处同步） |
 | 改图标与品牌图形 | 设计稿 `assets/icons/`、代码常量 `src/Pandre.Desktop/Icons.Brand.cs`、多尺寸成品 `src/Pandre.Desktop/Assets/pandre.ico` |
 
 ## 数据流
@@ -66,7 +65,6 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 - 改凭据存储（`src/Pandre.Core/Credentials.cs`）：Windows 必须保持 DPAPI（当前用户域）加密落盘；日志与异常消息不得输出 Cookie 值。
 - 改下载链路（`src/Pandre.Download/`）：`await` 一律带 `ConfigureAwait(false)`；`EnqueueAsync` 的逐任务选项必须与引擎级同源（`_connections`），写死数值会让设置页的连接数对实际下载失效（历史上就写死过 16）。
 - 改启动流程（`App.axaml.cs` 的 `InitSafelyAsync`、`MainViewModel.InitAsync`、`AppServices.StartDownloads`）：改完必须真跑一次应用并实测一次真实下载入队。原因：登录页重构曾让下载引擎的启动调用变成死代码，下载从未可用而界面看起来完全正常。
-- 改浏览器接管：扩展的站点锚点与 `matches`、共享脚本的 id 键与文件名键、`TakeoverServer` 的路由与令牌校验、`GetDownloadLinksByIdsAsync` 的取链实现，四处必须同步。改端口或令牌后必须在设置页重跑「安装扩展」并在浏览器扩展页重载（`config.js` 是安装时写死的）。
 - 改强调色资源（`App.axaml` 的 `AccentColor` / `AccentBrush` / `NavSelectedBrush` / `OnAccentBrush`）：这四键运行期由 `src/Pandre.Desktop/Services/AccentService.cs` 按 Windows 系统强调色覆盖，必须写在两层 `ThemeDictionaries` 里——写到顶层会遮蔽主题字典键，深浅两套色就丢了。压在强调色实底上的前景用 `OnAccentBrush`，不写死黑白。
 - 升级 Avalonia：先核对 `App.axaml` 覆盖的 Fluent 内部资源键（ComboBox / Button / Card 系列）。键名绑定 12.1.4，漂移会静默失效、不报错。
 - 改图标：`assets/icons/pandre-app.svg`（256 格标记）、`assets/icons/pandre-app-icon.svg`（48 格成品源）、`assets/icons/*.flat.svg`（填充展开稿，与 `Icons.Brand.cs` 常量逐字符相同）、`Assets/pandre.ico`（由成品源重渲 7 帧）是同一套图形的前后段，改一处必须同步其余；csproj 的 `ApplicationIcon` 与 MainWindow 的 `Icon` 两处都要设。
@@ -78,7 +76,6 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 - 禁止把 Transform 对象当 Avalonia 动画目标。原因：TransformAnimator 要求目标是 Visual，否则抛 `InvalidCastException` 闪退。写法见 `MainWindow.axaml.cs` 的 `UpdateNavIndicator`（Transitions 挂在 Border 上）。
 - 禁止用 `SystemDecorations="None"` 实现无边框。原因：会丢系统缩放与圆角；既定方案是 `WindowDecorations="BorderOnly"` + 自绘标题栏。
 - 禁止提交真实 Cookie 或令牌、禁止在日志与界面输出 Cookie 值。原因：Cookie 即账号等价物，进仓库或日志等于公开账号。凭据只在 `%APPDATA%/Pandre/credentials/`，不进仓库。
-- 禁止把 `.crx` 当扩展分发形态。原因：Windows/macOS 的 Chrome 只允许从 Web Store 装本地 `.crx`，且改端口或令牌就得重打包重签名；「加载已解压目录」才允许应用直接覆写 `config.js`。
 - 禁止写注册表、加右键菜单、进「此电脑」、开机自启，禁止引入任何统计或上报 SDK。原因：绿色免安装与零遥测是设计规范（docs §5），不是可选项。
 - 禁止复制 AGPL 项目（OpenList / AList）的代码。原因：会传染本项目许可证；许可裁决表见 docs §8。参考参数设计可以，复制别家代码前先核许可证。
 - 禁止删掉 README 的「致谢」与「License」两节。原因：MIT / Apache-2.0 项目允许参考但要求署名与许可声明，删掉即违反许可义务；裁决表见 docs §8。
@@ -90,9 +87,9 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 
 1. 在仓库内做一次**全量**构建 `dotnet build src/Pandre.Desktop/Pandre.Desktop.csproj -c Release`，0 错误 0 警告；增量构建的结果不作数（见「出错怎么办」）。
 2. 真跑一次应用，走通受影响的流程：登录 / 列目录 / 搜索 / 下载 / 文件管理（移动·复制·重命名·删除）/ 转存 / 分享 / 上传，按改动面至少走通对应的一条。
-3. 凡触及下载链路、启动流程、浏览器接管：必须实测一次真实入队，只看界面不算；动夸克取链时用一个 ≥100MB 的文件，UA 门只在 ≥100MB 触发。
+3. 凡触及下载链路、启动流程：必须实测一次真实入队，只看界面不算；动夸克取链时用一个 ≥100MB 的文件，UA 门只在 ≥100MB 触发。
 4. UI 改动：深色、浅色两主题各截图核对一次。运行期两个验收开关：`PANDRE_AUTOCHECK=3` 启动后直跳某页（0 百度 / 1 夸克 / 2 下载 / 3 设置），`PANDRE_LOGINPANEL=1` 强制弹开扫码弹窗。
-5. 需要真实账号或手工操作的步骤（扫码登录、真实入队、在 `chrome://extensions` 重载扩展）必须由用户配合完成，不能只凭构建与界面就报通过。
+5. 需要真实账号或手工操作的步骤（扫码登录、真实入队）必须由用户配合完成，不能只凭构建与界面就报通过。
 
 收尾：强制结束应用进程不会带走 `aria2c` 子进程（只有正常退出路径的 `desktop.Exit` 才收尾），用强杀收尾时顺手结束残留的 `aria2c`。
 
@@ -113,7 +110,6 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 | src/Pandre.Core/PanHttp.cs | 百度若干端点把 Content-Type 写成 `charset=utf8`（无连字符），.NET 不认这个别名；归一在 `CharsetFixHandler` 里 | 新增任何 HttpClient 前先确认走了 `PanHttp.CreateClient` |
 | src/Pandre.Desktop/App.axaml | 控件观感靠覆盖 Avalonia Fluent 内部资源键实现，键名绑定 12.1.4 | 升级 Avalonia 前先对键名 |
 | src/Pandre.Desktop/Services/AppServices.cs | `StartDownloads`（历史名 `InitAsync`）曾因启动链断裂漏被调用，下载引擎从未启动而界面无报错 | 改启动流程后真跑应用并实测入队 |
-| assets/extension/ + src/Pandre.Desktop/Services/TakeoverServer.cs | 网页选择读取依赖站点 React fiber 结构（百度 `fs_id` / 夸克 `fid`），站点改版会静默失效；回环入口只有令牌一道闸 | 站点改版后按 docs §7 的 fiber 反查手法重取锚点 |
 
 ## 出错怎么办
 
@@ -128,9 +124,6 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 | 百度接口 `errno=-6` | BDUSS 无效或未登录；核对用的是 `qrbdusslogin` 响应 `session` 里的值，不是 `Set-Cookie` |
 | `'utf8' is not a supported encoding name` | 新客户端没走 `PanHttp.CreateClient`（charset 归一的管道在那里） |
 | 转存报「分享页解析失败（locals.mset 未找到）」 | 这是已废弃的页面解析路径；转存元数据必须走 `api/shorturlinfo` + `share/list`，规格见 docs §4b |
-| 网页上「用 Pandre 下载」点了没反应，或提示「连不上本机 Pandre」 | 应用没启动、设置页「浏览器接管」没开，或端口与扩展 `config.js` 里那个不一致；设置页状态行会显示 `127.0.0.1:端口` |
-| 接管报「令牌无效（扩展目录里的 config.js 与当前应用不一致…）」 | 令牌或端口改过、或换了 AppData 目录：设置页点「安装扩展」重写 `config.js`，再到 `chrome://extensions` 重载扩展 |
-| 网页上根本不出现接管按钮 | 当前页不在接管范围（百度只接管 `/disk/*`、夸克只接管 `/list/*`，分享页不接管），或站点改版使 fiber 取数失效（控制台有 `[pandre]` 警告） |
 
 ## 维护
 
