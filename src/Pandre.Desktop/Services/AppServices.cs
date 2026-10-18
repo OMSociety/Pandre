@@ -62,11 +62,11 @@ public static class AppServices
         set { var s = LoadSettings(); s.DownloadDir = value; SaveSettings(s); }
     }
 
-    /// <summary>单任务连接数（aria2 --split / --max-connection-per-server），1-64，默认 16。引擎在应用启动时固定此值，改后重启应用生效。</summary>
+    /// <summary>单任务连接数（aria2 --split / --max-connection-per-server），1-16（aria2 硬上限 16，超限引擎拒绝启动），默认 16。引擎在应用启动时固定此值，改后重启应用生效。</summary>
     public static int Aria2Connections
     {
-        get => LoadSettings().Aria2Connections is > 0 and <= 64 ? LoadSettings().Aria2Connections!.Value : 16;
-        set { var s = LoadSettings(); s.Aria2Connections = Math.Clamp(value, 1, 64); SaveSettings(s); }
+        get => LoadSettings().Aria2Connections is > 0 and <= 16 ? LoadSettings().Aria2Connections!.Value : 16;
+        set { var s = LoadSettings(); s.Aria2Connections = Math.Clamp(value, 1, 16); SaveSettings(s); }
     }
 
     /// <summary>全局同时下载数（aria2 --max-concurrent-downloads），1-20，默认 5。引擎在应用启动时固定此值，改后重启应用生效。</summary>

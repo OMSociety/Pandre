@@ -481,10 +481,20 @@ public sealed class QuarkPanClient : IPanClient
             while ((read = await fs.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
             {
                 md5.AppendData(buffer, 0, read);
-                sha1.Feed(buffer.AsSpan(0, read));
+                var bufStart = totalRead;   // 本次读起始的绝对偏移
                 totalRead += read;
-                while (totalRead >= (long)ctxByBoundary.Count * chunkSize)
-                    ctxByBoundary.Add(sha1.SnapshotCtx());
+                // 按分片边界逐段 Feed、到边界立即拍快照：chunkSize 非 1MB 倍数时一次读会跨多个
+                // 分片边界，整段 Feed 完再拍会把中间分片的 ctx 全拍成同一错态（深审 PC-02）。
+                var consumed = 0;
+                while (consumed < read)
+                {
+                    var nextBoundary = (long)ctxByBoundary.Count * chunkSize;
+                    var segEnd = (int)(Math.Min(totalRead, nextBoundary) - bufStart);
+                    sha1.Feed(buffer.AsSpan(consumed, segEnd - consumed));
+                    consumed = segEnd;
+                    if (bufStart + consumed == nextBoundary)
+                        ctxByBoundary.Add(sha1.SnapshotCtx());
+                }
             }
         }
         var md5Hex = Convert.ToHexString(md5.GetHashAndReset()).ToLowerInvariant();

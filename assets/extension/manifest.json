@@ -6,7 +6,7 @@
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
-      "matches": ["*://drive.quark.cn/*"],
+      "matches": ["*://pan.quark.cn/*"],
       "js": ["config.js", "content-shared.js", "content-quark.js"],
       "run_at": "document_idle"
     },

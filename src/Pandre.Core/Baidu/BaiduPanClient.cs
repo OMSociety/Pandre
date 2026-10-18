@@ -559,20 +559,23 @@ public sealed class BaiduPanClient : IPanClient
                 if (c.Name == name) c.Expired = true;   // 置过期即从容器移除
     }
 
-    /// <summary>分享根层条目（fs_id 字符串，兼容数字形态）。</summary>
-    private static IEnumerable<long> ReadFsIds(JsonElement list)
+    /// <summary>分享根层条目（fs_id 字符串，兼容数字形态）。返回 (有效 id 列表, 无效条目数：缺 fs_id / 无法解析 / 为 0)。</summary>
+    private static (List<long> Ids, int Invalid) ReadFsIds(JsonElement list)
     {
+        var ids = new List<long>();
+        var invalid = 0;
         foreach (var it in list.EnumerateArray())
         {
-            if (!it.TryGetProperty("fs_id", out var f)) continue;
+            if (!it.TryGetProperty("fs_id", out var f)) { invalid++; continue; }
             var id = f.ValueKind switch
             {
                 JsonValueKind.String when long.TryParse(f.GetString(), out var s) => s,
-                JsonValueKind.Number => f.GetInt64(),
+                JsonValueKind.Number when f.TryGetInt64(out var n) => n,
                 _ => 0L,
             };
-            if (id != 0) yield return id;
+            if (id != 0) ids.Add(id); else invalid++;
         }
+        return (ids, invalid);
     }
 
     public async Task<PanSaveShareResult> SaveShareAsync(string shareUrl, string? passcode, PanFile? targetDir, CancellationToken ct = default)
@@ -640,6 +643,7 @@ public sealed class BaiduPanClient : IPanClient
         var shareUk = ukEl.GetInt64();
 
         var fsIds = new List<long>();
+        var skippedInvalid = 0;
         for (var page = 1; ; page++)
         {
             var listRoot = JsonDocument.Parse(await Http.GetStringAsync(
@@ -656,9 +660,12 @@ public sealed class BaiduPanClient : IPanClient
                     _ => $"读取分享文件列表失败 errno={lerrno}",
                 }, lerrno);
             if (!listRoot.TryGetProperty("list", out var list) || list.ValueKind != JsonValueKind.Array) break;
-            var got = 0;
-            foreach (var id in ReadFsIds(list)) { fsIds.Add(id); got++; }
-            if (got < 100) break;   // 还有下一页
+            var (pageIds, pageInvalid) = ReadFsIds(list);
+            fsIds.AddRange(pageIds);
+            skippedInvalid += pageInvalid;
+            // 满页判定必须按服务端返回的原始条目数，不能按有效 fs_id 数：页内混入坏条目时
+            // 按有效数判会误判成「最后一页」提前终止，后续页静默丢失且全程无报错（深审 PC-01）
+            if (list.GetArrayLength() < 100) break;
         }
         if (fsIds.Count == 0) throw new PanException("分享里没有可转存的文件");
 
@@ -708,7 +715,7 @@ public sealed class BaiduPanClient : IPanClient
         {
             saved = fsIds.Count; // 响应无 info 数组（历史形态），按请求条目数计
         }
-        return new PanSaveShareResult(targetDir?.Name ?? "根目录", saved);
+        return new PanSaveShareResult(targetDir?.Name ?? "根目录", saved, skippedInvalid);
     }
 
     /// <summary>我的分享列表（share/record，时间倒序；不含提取码——百度要查得逐个调 share/surlinfo，不做）。</summary>

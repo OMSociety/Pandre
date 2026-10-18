@@ -1,4 +1,4 @@
-// Pandre 接管 · 夸克网盘（drive.quark.cn）
+// Pandre 接管 · 夸克网盘（pan.quark.cn）
 // 选择锚点：Ant Design 表格勾选框（input.ant-checkbox-input:checked），行数据在 React fiber 的 props 里。
 globalThis.__pandreBoot({
   provider: "quark",

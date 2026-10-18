@@ -71,7 +71,8 @@ public enum PanConflictPolicy
 /// <summary>转存一份外部分享链接到自己网盘的结果。</summary>
 public sealed record PanSaveShareResult(
     string SavedToDirName,
-    int SavedCount);
+    int SavedCount,
+    int SkippedInvalid = 0);
 
 /// <summary>一条分享记录（我的分享列表项）。</summary>
 public sealed record PanShare(

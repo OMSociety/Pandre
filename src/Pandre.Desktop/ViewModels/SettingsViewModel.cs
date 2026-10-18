@@ -159,8 +159,9 @@ public partial class SettingsViewModel : ViewModelBase
         // 解析失败不静默：给出可见提示（此前静默不保存，用户不知道改动没生效）
         if (int.TryParse(value, out var n))
         {
-            Aria2Hint = n is > 0 and <= 64 ? null : "连接数需在 1-64 之间";
-            if (n != AppServices.Aria2Connections && n is > 0 and <= 64)
+            // aria2 的 max-connection-per-server 硬上限 16，超限 aria2c 直接拒绝启动（exit 28），故此处同步钳制
+            Aria2Hint = n is > 0 and <= 16 ? null : "连接数需在 1-16 之间";
+            if (n != AppServices.Aria2Connections && n is > 0 and <= 16)
                 AppServices.Aria2Connections = n;
         }
         else Aria2Hint = "连接数需为整数（当前改动未保存）";

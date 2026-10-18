@@ -111,7 +111,7 @@
                       Foreground="{DynamicResource TextSecondaryBrush}"/>
             <StackPanel Grid.Column="1">
               <TextBlock Text="单任务连接数"/>
-              <TextBlock Classes="secondary" Text="每个文件拆成几段同时下载（1-64），重启后生效"/>
+              <TextBlock Classes="secondary" Text="每个文件拆成几段同时下载（1-16），重启后生效"/>
             </StackPanel>
             <TextBox Grid.Column="2" Text="{Binding Aria2Connections}" MinWidth="80" VerticalAlignment="Center"/>
           </Grid>

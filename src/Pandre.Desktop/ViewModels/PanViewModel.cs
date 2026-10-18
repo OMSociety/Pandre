@@ -479,7 +479,9 @@ public partial class PanViewModel : ViewModelBase
             }
             var res = await Client.SaveShareAsync(link, code.Length == 0 ? null : code, _dirStack[^1]);
             await LoadCurrentAsync();
-            StatusMessage = $"已转存 {res.SavedCount} 项 → {res.SavedToDirName}";
+            StatusMessage = res.SkippedInvalid > 0
+                ? $"已转存 {res.SavedCount} 项 → {res.SavedToDirName}（另有 {res.SkippedInvalid} 条无效条目未转存）"
+                : $"已转存 {res.SavedCount} 项 → {res.SavedToDirName}";
         });
 
     [RelayCommand]

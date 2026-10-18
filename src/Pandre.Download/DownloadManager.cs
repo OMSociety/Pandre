@@ -51,7 +51,7 @@ public sealed class DownloadManager : IDisposable
             _lastExePath = aria2ExePath;
             _lastConnections = connections;
             _lastMaxConcurrent = maxConcurrent;
-            _connections = Math.Clamp(connections, 1, 64);
+            _connections = Math.Clamp(connections, 1, 16);   // aria2 max-connection-per-server 硬上限 16
             _engine.Start(aria2ExePath, _connections, maxConcurrent);
             _pollCts = new CancellationTokenSource();
             _ = Task.Run(() => PollLoopAsync(_pollCts.Token));
