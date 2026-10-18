@@ -162,6 +162,17 @@ public partial class PanViewModel : ViewModelBase
     private async Task OpenAsync(FileRowViewModel? row)
     {
         if (row == null || !row.File.IsDirectory) return;
+        if (_isSearchMode)
+        {
+            // 搜索结果里打开目录：目录栈无法表达「搜索上下文的父链」，
+            // 以根为底直接进入该目录，避免路径栏拼出假父链（深审 B-08）
+            _dirStack.Clear();
+            _dirStack.Add(null);
+            _dirStack.Add(row.File);
+            _isSearchMode = false;
+            await LoadCurrentAsync();
+            return;
+        }
         _dirStack.Add(row.File);
         await LoadCurrentAsync();
     }
@@ -199,9 +210,16 @@ public partial class PanViewModel : ViewModelBase
         {
             var links = await Client.GetDownloadLinksAsync(files);
             var dir = AppServices.DownloadDir;
+            // 逐条入队：一条失败不吞掉其余，成功/失败计数如实展示（深审 EC-07）
+            var ok = 0; var failed = 0; string? lastError = null;
             foreach (var l in links)
-                await AppServices.Downloads.EnqueueAsync(l, dir);
-            StatusMessage = $"已加入下载：{links.Count} 个文件 → {dir}";
+            {
+                try { await AppServices.Downloads.EnqueueAsync(l, dir); ok++; }
+                catch (Exception ex) { failed++; lastError = ex.Message; }
+            }
+            StatusMessage = failed == 0
+                ? $"已加入下载：{ok} 个文件 → {dir}"
+                : $"已加入下载：{ok} 个文件，{failed} 个失败{(lastError != null ? $"（如：{lastError}）" : "")} → {dir}";
             _downloads.Refresh();
         }
         catch (PanException ex) { StatusMessage = $"取下载链失败：{ex.Message}"; }
@@ -211,6 +229,13 @@ public partial class PanViewModel : ViewModelBase
 
     private async Task LoadCurrentAsync()
     {
+        // 搜索模式下做完文件操作：刷新搜索结果而非静默切回目录列表（深审 EC-08）；
+        // 搜索词已被清空则顺势退回目录模式
+        if (_isSearchMode)
+        {
+            if (!string.IsNullOrWhiteSpace(SearchText)) { await SearchAsync(); return; }
+            _isSearchMode = false;
+        }
         if (!IsLoggedIn) { StatusMessage = "未登录"; return; }
         IsLoading = true;
         StatusMessage = "加载中…";
@@ -252,6 +277,7 @@ public partial class PanViewModel : ViewModelBase
     {
         if (!IsLoggedIn) { StatusMessage = "未登录"; return; }
         if (paths.Count == 0) return;
+        if (IsUploading) { StatusMessage = "已有上传在进行中，请等它完成"; return; }   // 并发守卫（深审 EC-04）
         IsUploading = true;
         try
         {

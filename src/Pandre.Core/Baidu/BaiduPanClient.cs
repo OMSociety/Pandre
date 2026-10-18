@@ -203,43 +203,46 @@ public sealed class BaiduPanClient : IPanClient
     private static async Task<(string contentMd5, string sliceMd5, List<string> blockList)> HashFileAsync(
         string localPath, int blockSize, CancellationToken ct)
     {
-        await using var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+        var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
             bufferSize: 1024 * 1024, useAsync: true);
-        using var contentHasher = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
-        using var sliceHasher = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
-        var blockList = new List<string>();
-        var blockBuf = new byte[blockSize];
-        var blockFill = 0;
-        var sliceLeft = SliceMd5Size;
-        var readBuf = new byte[1024 * 1024];
-        int n;
-        while ((n = await fs.ReadAsync(readBuf, ct).ConfigureAwait(false)) > 0)
+        await using (fs.ConfigureAwait(false))
         {
-            contentHasher.AppendData(readBuf, 0, n);
-            if (sliceLeft > 0)
+            using var contentHasher = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+            using var sliceHasher = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+            var blockList = new List<string>();
+            var blockBuf = new byte[blockSize];
+            var blockFill = 0;
+            var sliceLeft = SliceMd5Size;
+            var readBuf = new byte[1024 * 1024];
+            int n;
+            while ((n = await fs.ReadAsync(readBuf, ct).ConfigureAwait(false)) > 0)
             {
-                var take = Math.Min(n, sliceLeft);
-                sliceHasher.AppendData(readBuf, 0, take);
-                sliceLeft -= take;
-            }
-            var off = 0;
-            while (off < n)
-            {
-                var take = Math.Min(n - off, blockSize - blockFill);
-                Array.Copy(readBuf, off, blockBuf, blockFill, take);
-                blockFill += take; off += take;
-                if (blockFill == blockSize)
+                contentHasher.AppendData(readBuf, 0, n);
+                if (sliceLeft > 0)
                 {
-                    blockList.Add(Md5Hex(blockBuf));
-                    blockFill = 0;
+                    var take = Math.Min(n, sliceLeft);
+                    sliceHasher.AppendData(readBuf, 0, take);
+                    sliceLeft -= take;
+                }
+                var off = 0;
+                while (off < n)
+                {
+                    var take = Math.Min(n - off, blockSize - blockFill);
+                    Array.Copy(readBuf, off, blockBuf, blockFill, take);
+                    blockFill += take; off += take;
+                    if (blockFill == blockSize)
+                    {
+                        blockList.Add(Md5Hex(blockBuf));
+                        blockFill = 0;
+                    }
                 }
             }
+            if (blockFill > 0)
+                blockList.Add(Md5Hex(blockBuf.AsSpan(0, blockFill).ToArray()));
+            return (Convert.ToHexString(contentHasher.GetHashAndReset()).ToLowerInvariant(),
+                    Convert.ToHexString(sliceHasher.GetHashAndReset()).ToLowerInvariant(),
+                    blockList);
         }
-        if (blockFill > 0)
-            blockList.Add(Md5Hex(blockBuf.AsSpan(0, blockFill).ToArray()));
-        return (Convert.ToHexString(contentHasher.GetHashAndReset()).ToLowerInvariant(),
-                Convert.ToHexString(sliceHasher.GetHashAndReset()).ToLowerInvariant(),
-                blockList);
     }
 
     /// <summary>上传本地文件（precreate 秒传 → superfile2 分片 → create 合并）。同名冲突统一跳过（rtype=2）；界面未提供策略选项，需要时再恢复参数。</summary>
@@ -271,11 +274,14 @@ public sealed class BaiduPanClient : IPanClient
         string dataContent;
         int dataLength;
         {
-            await using var fs = File.OpenRead(localPath);
-            fs.Seek(dataOffset, SeekOrigin.Begin);
-            var buf = new byte[Math.Min(DataContentSize, fileSize - dataOffset)];
-            dataLength = await fs.ReadAsync(buf, ct).ConfigureAwait(false);
-            dataContent = Convert.ToBase64String(buf, 0, dataLength).TrimEnd('=');
+            var fsData = File.OpenRead(localPath);
+            await using (fsData.ConfigureAwait(false))
+            {
+                fsData.Seek(dataOffset, SeekOrigin.Begin);
+                var buf = new byte[Math.Min(DataContentSize, fileSize - dataOffset)];
+                dataLength = await fsData.ReadAsync(buf, ct).ConfigureAwait(false);
+                dataContent = Convert.ToBase64String(buf, 0, dataLength).TrimEnd('=');
+            }
         }
         var blockListJson = "[\"" + string.Join("\",\"", blockList) + "\"]";
 
@@ -338,8 +344,9 @@ public sealed class BaiduPanClient : IPanClient
 
         // ---- 步骤2：superfile2 逐分片上传 ----
         var partCount = blockList.Count;
-        await using (var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize: 1024 * 1024, useAsync: true))
+        var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 1024 * 1024, useAsync: true);
+        await using (fs.ConfigureAwait(false))
         {
             for (var seq = 0; seq < partCount; seq++)
             {

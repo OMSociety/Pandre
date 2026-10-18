@@ -70,9 +70,9 @@ public sealed partial class BaiduQrLogin : IQrLoginFlow
             if (cv.Length == 0) continue;
             var cvj = JsonDocument.Parse(cv.Replace("\\/", "/"));
             var status = cvj.RootElement.GetProperty("status").GetInt32();
+            if (status is 0 or 1) unknownStreak = 0; // 已知状态拍归零，只统计真正连续的未知拍
             if (status == 1)
             {
-                unknownStreak = 0;
                 progress?.Report(QrLoginState.Scanned);
             }
             else if (status == 0 && cvj.RootElement.TryGetProperty("v", out var ve)) ticket = ve.GetString();

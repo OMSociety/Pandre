@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -55,7 +56,16 @@ public sealed class TakeoverServer : IDisposable
     {
         try
         {
-            // 全挂 CORS 头：扩展 service worker 的请求不受 CORS 约束，但页面调试/未来变更时省一次排查
+            // Host 校验防 DNS rebinding：监听在回环，Host 头仍可能是伪造域名（深审 CL-03）
+            var reqHost = ctx.Request.Url?.Host;
+            if (reqHost is not ("127.0.0.1" or "localhost"))
+            {
+                await WriteJsonAsync(ctx, 403, new { ok = false, error = "非法 Host" }).ConfigureAwait(false);
+                return;
+            }
+
+            // 全挂 CORS 头：扩展 service worker 的请求不受 CORS 约束，但页面调试/未来变更时省一次排查。
+            // ACAO=* 是扩展页面跨源读响应的功能依赖（深审 CL-03 裁决保留）；回环物理边界 + 令牌闸是安全边界
             ctx.Response.Headers["Access-Control-Allow-Origin"] = "*";
             ctx.Response.Headers["Access-Control-Allow-Headers"] = "content-type, x-pandre-token";
             if (ctx.Request.HttpMethod == "OPTIONS")
@@ -67,6 +77,12 @@ public sealed class TakeoverServer : IDisposable
             var path = ctx.Request.Url?.AbsolutePath.TrimEnd('/') ?? "";
             if (ctx.Request.HttpMethod == "GET" && path == "/pandre/ping")
             {
+                // ping 也过令牌闸：探活同样能泄露应用版本等信息（深审 CL-03）
+                if (!IsValidToken(ctx.Request.Headers["X-Pandre-Token"]))
+                {
+                    await WriteJsonAsync(ctx, 401, new { ok = false, error = "令牌无效（扩展目录里的 config.js 与当前应用不一致，请在设置页重新安装扩展）" }).ConfigureAwait(false);
+                    return;
+                }
                 var version = Assembly.GetExecutingAssembly()
                     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
                 await WriteJsonAsync(ctx, 200, new { ok = true, name = "pandre", version }).ConfigureAwait(false);
@@ -74,7 +90,7 @@ public sealed class TakeoverServer : IDisposable
             }
             if (ctx.Request.HttpMethod == "POST" && path == "/pandre/add")
             {
-                if (ctx.Request.Headers["X-Pandre-Token"] != AppServices.TakeoverToken)
+                if (!IsValidToken(ctx.Request.Headers["X-Pandre-Token"]))
                 {
                     await WriteJsonAsync(ctx, 401, new { ok = false, error = "令牌无效（扩展目录里的 config.js 与当前应用不一致，请在设置页重新安装扩展）" }).ConfigureAwait(false);
                     return;
@@ -86,13 +102,24 @@ public sealed class TakeoverServer : IDisposable
         }
         catch (Exception ex)
         {
-            try { await WriteJsonAsync(ctx, 500, new { ok = false, error = ex.Message }).ConfigureAwait(false); }
+            // 内部错误不外泄原始异常细节（可能含路径等内部信息，深审 F-C13）；全文进调试日志
+            System.Diagnostics.Debug.WriteLine("[takeover] 内部错误: " + ex);
+            try { await WriteJsonAsync(ctx, 500, new { ok = false, error = "Pandre 内部错误，详情见应用调试日志" }).ConfigureAwait(false); }
             catch { /* 连接可能已被对端断开 */ }
         }
         finally
         {
             try { ctx.Response.Close(); } catch { }
         }
+    }
+
+    /// <summary>常量时间令牌比对，防时序侧信道逐字节猜令牌（深审 CL-03）。</summary>
+    private static bool IsValidToken(string? presented)
+    {
+        var expected = AppServices.TakeoverToken;
+        if (string.IsNullOrEmpty(presented) || presented.Length != expected.Length) return false;
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(presented), System.Text.Encoding.UTF8.GetBytes(expected));
     }
 
     private async Task HandleAddAsync(HttpListenerContext ctx)
@@ -113,28 +140,49 @@ public sealed class TakeoverServer : IDisposable
             return;
         }
 
-        IPanClient client = body.Provider.ToLowerInvariant() switch
+        var providerKey = body.Provider.ToLowerInvariant();
+        if (providerKey is not ("baidu" or "quark"))
         {
-            "baidu" => AppServices.Baidu,
-            "quark" => AppServices.Quark,
-            _ => throw new PanException($"不支持的 provider：{body.Provider}"),
-        };
+            // 业务错按 400 报（此前经异常冒泡成 500，语义失真，深审 B-06）
+            await WriteJsonAsync(ctx, 400, new { ok = false, error = $"不支持的 provider：{body.Provider}" }).ConfigureAwait(false);
+            return;
+        }
+        IPanClient client = providerKey == "baidu" ? AppServices.Baidu : AppServices.Quark;
         if (!client.IsAuthenticated)
-            throw new PanException(body.Provider == "baidu" ? "Pandre 未登录百度账号" : "Pandre 未登录夸克账号");
+        {
+            await WriteJsonAsync(ctx, 400, new { ok = false, error = providerKey == "baidu" ? "Pandre 未登录百度账号" : "Pandre 未登录夸克账号" }).ConfigureAwait(false);
+            return;
+        }
 
         var refs = body.Files
             .Where(f => !string.IsNullOrWhiteSpace(f.Id))
             .Select(f => new PanRemoteFileRef(f.Id!, f.Name, f.Size))
             .ToArray();
-        var links = await client.GetDownloadLinksByIdsAsync(refs).ConfigureAwait(false);
-
-        var names = new string[links.Count];
-        for (var i = 0; i < links.Count; i++)
+        var links = (await client.GetDownloadLinksByIdsAsync(refs).ConfigureAwait(false)).ToArray();
+        if (links.Length == 0)
         {
-            await AppServices.Downloads.EnqueueAsync(links[i], AppServices.DownloadDir).ConfigureAwait(false);
-            names[i] = links[i].File.Name;
+            await WriteJsonAsync(ctx, 400, new { ok = false, error = "没有取到任何文件的可下载链接（文件可能已失效）" }).ConfigureAwait(false);
+            return;
         }
-        await WriteJsonAsync(ctx, 200, new { ok = true, enqueued = links.Count, names }).ConfigureAwait(false);
+
+        // 逐条入队：一条失败不影响其余，部分成功也如实报（深审 B-06/EC-07）
+        var names = new List<string>(links.Length);
+        var failed = 0; string? lastError = null;
+        foreach (var link in links)
+        {
+            try
+            {
+                await AppServices.Downloads.EnqueueAsync(link, AppServices.DownloadDir).ConfigureAwait(false);
+                names.Add(link.File.Name);
+            }
+            catch (Exception ex) { failed++; lastError = ex.Message; }
+        }
+        if (names.Count == 0)
+        {
+            await WriteJsonAsync(ctx, 400, new { ok = false, error = $"0 个文件入队成功（共 {links.Length} 个，如：{lastError}）" }).ConfigureAwait(false);
+            return;
+        }
+        await WriteJsonAsync(ctx, 200, new { ok = true, enqueued = names.Count, failed, names }).ConfigureAwait(false);
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };

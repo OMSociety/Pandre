@@ -62,7 +62,7 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 
 - 改或新增网盘 API（`src/Pandre.Core/Baidu/`、`src/Pandre.Core/Quark/`）：先读 [docs/开发文档.md](./docs/开发文档.md) §3/§4/§4b/§4c。端点与参数都是抓包/实测钉死的，**不得按常识增删改，新增端点同样要拿实测证据**；改完把新结论写回同一份文档。阶段划分（P0–P3）见该文档 §6。
 - 在 `IPanClient` 加方法：给默认实现抛 `NotSupportedException`，由各盘按能力覆盖，否则会一次性打断另一盘（P2 起的方法全按这个口径加）。
-- 改 UI 样式：只改 `src/Pandre.Desktop/App.axaml` 的 `ThemeDictionaries` 资源与控件样式；`Views/` 内颜色一律 `{DynamicResource ...}`，不写字面色值（规范见 docs §7）。
+- 改 UI 样式：只改 `src/Pandre.Desktop/App.axaml` 的 `ThemeDictionaries` 资源与控件样式；`Views/` 内颜色一律 `{DynamicResource ...}`（主题无关的 `Transparent` 例外：窗口底、拖动区等透明占位），不写字面色值（规范见 docs §7）。
 - 改凭据存储（`src/Pandre.Core/Credentials.cs`）：Windows 必须保持 DPAPI（当前用户域）加密落盘；日志与异常消息不得输出 Cookie 值。
 - 改下载链路（`src/Pandre.Download/`）：`await` 一律带 `ConfigureAwait(false)`；`EnqueueAsync` 的逐任务选项必须与引擎级同源（`_connections`），写死数值会让设置页的连接数对实际下载失效（历史上就写死过 16）。
 - 改启动流程（`App.axaml.cs` 的 `InitSafelyAsync`、`MainViewModel.InitAsync`、`AppServices.StartDownloads`）：改完必须真跑一次应用并实测一次真实下载入队。原因：登录页重构曾让下载引擎的启动调用变成死代码，下载从未可用而界面看起来完全正常。
@@ -99,7 +99,7 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 ## 提交与协作
 
 - Commit：单行中文摘要，格式 `模块：改动`；模块用 `Core（百度）` / `Core（夸克）` / `Download` / `Desktop` / `docs` / `工程`，与 git log 既有惯例一致。一次提交只写一个主模块，跨模块改动归入主责模块或拆成多次提交。
-- 行尾由 `.gitattributes` 强制：`.cs` / `.axaml` / `.md` / `.json` 用 LF，`.csproj` / `.slnx` 用 CRLF，二进制标记。不要为了迁就编辑器去改这份文件。
+- 行尾由 `.gitattributes` 强制：`*` text=auto 兜底；显式规则 `.cs` / `.axaml` / `.md` / `.json` / `.yml` / `.gitattributes` 用 LF，`.csproj` / `.slnx` 用 CRLF，`ico` / `png` / `jpg` / `exe` / `dll` 标记 binary。不要为了迁就编辑器去改这份文件。
 
 ## 已知风险区
 

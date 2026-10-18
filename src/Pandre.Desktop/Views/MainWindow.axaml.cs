@@ -111,14 +111,22 @@ public partial class MainWindow : Window
     private async void OnCopyPanDialogTextClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not ViewModels.PanViewModel vm) return;
-        var clipboard = Clipboard;
-        if (clipboard != null && vm.DialogText.Length > 0)
+        try
         {
-            // Avalonia 12 新剪贴板 API：DataTransfer + DataTransferItem
-            var transfer = new DataTransfer();
-            transfer.Add(DataTransferItem.CreateText(vm.DialogText));
-            await clipboard.SetDataAsync(transfer);
-            vm.StatusMessage = "已复制到剪贴板";
+            var clipboard = Clipboard;
+            if (clipboard != null && vm.DialogText.Length > 0)
+            {
+                // Avalonia 12 新剪贴板 API：DataTransfer + DataTransferItem
+                var transfer = new DataTransfer();
+                transfer.Add(DataTransferItem.CreateText(vm.DialogText));
+                await clipboard.SetDataAsync(transfer);
+                vm.StatusMessage = "已复制到剪贴板";
+            }
+        }
+        catch (Exception ex)
+        {
+            // 剪贴板被占用等瞬时故障不崩进程（async void 未捕获异常直接炸，深审 CL-02）
+            vm.StatusMessage = "复制失败：" + ex.Message;
         }
     }
 
@@ -126,13 +134,21 @@ public partial class MainWindow : Window
     private async void OnCopyShareLinkClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not ViewModels.ShareRowViewModel row) return;
-        var clipboard = Clipboard;
-        if (clipboard == null || row.Share.ShareUrl.Length == 0) return;
-        var url = row.Share.Passcode != null && !row.Share.ShareUrl.Contains("?pwd=")
-            ? $"{row.Share.ShareUrl}?pwd={row.Share.Passcode}" : row.Share.ShareUrl;
-        var transfer = new DataTransfer();
-        transfer.Add(DataTransferItem.CreateText(url));
-        await clipboard.SetDataAsync(transfer);
+        try
+        {
+            var clipboard = Clipboard;
+            if (clipboard == null || row.Share.ShareUrl.Length == 0) return;
+            var url = row.Share.Passcode != null && !row.Share.ShareUrl.Contains("?pwd=")
+                ? $"{row.Share.ShareUrl}?pwd={row.Share.Passcode}" : row.Share.ShareUrl;
+            var transfer = new DataTransfer();
+            transfer.Add(DataTransferItem.CreateText(url));
+            await clipboard.SetDataAsync(transfer);
+        }
+        catch (Exception ex)
+        {
+            // 同上：async void 必须自接异常（深审 CL-02）
+            System.Diagnostics.Debug.WriteLine("[ui] 复制分享链接失败: " + ex.Message);
+        }
     }
 
     /// <summary>Esc 收起弹窗（登录弹窗 / 功能开关 / 网盘操作弹窗）。</summary>

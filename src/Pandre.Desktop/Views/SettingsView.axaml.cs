@@ -46,4 +46,10 @@ public partial class SettingsView : UserControl
     {
         if (DataContext is SettingsViewModel vm) vm.InstallExtension();
     }
+
+    /// <summary>「重新生成令牌」：换锁，旧扩展 config.js 立即失效，需重装扩展。</summary>
+    private void OnRotateTokenClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SettingsViewModel vm) vm.RotateToken();
+    }
 }

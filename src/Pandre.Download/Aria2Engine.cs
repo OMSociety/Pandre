@@ -17,6 +17,10 @@ public sealed class Aria2Engine : IDisposable
     private string _rpcUrl = "";
     private string _secret = "";
     private int _idSeq;
+    private readonly StringBuilder _stderrTail = new();
+
+    /// <summary>aria2c 进程是否存活（供调用方做死亡感知与自动重启，深审 EC-03）。</summary>
+    public bool IsAlive => _proc is { HasExited: false };
 
     /// <summary>aria2c.exe 的约定位置：应用目录 assets/windows/aria2c.exe（Desktop 项目负责拷贝到输出目录）。</summary>
     public static string ResolveExePath(string? explicitPath = null)
@@ -40,6 +44,7 @@ public sealed class Aria2Engine : IDisposable
 
         for (var attempt = 1; ; attempt++)
         {
+            _stderrTail.Clear();   // 每次尝试的 stderr 摘要只属本次
             var port = FreePort();
             _rpcUrl = $"http://127.0.0.1:{port}/jsonrpc";
             _proc = SpawnProcess(exe, port, connections, maxConcurrent);
@@ -64,7 +69,7 @@ public sealed class Aria2Engine : IDisposable
         var startInfo = new ProcessStartInfo(exe,
             $"--enable-rpc --rpc-listen-all=false --rpc-listen-port={port} --rpc-secret={_secret} " +
             $"--max-connection-per-server={connections} --split={connections} --max-concurrent-downloads={maxConcurrent} " +
-            "--continue=true --allow-overwrite=true " +
+            "--continue=true --allow-overwrite=true --auto-save-interval=1 " +
             "--max-tries=5 --retry-wait=2 " +
             // 只走 IPv4：本机 DNS 对 d.pcs.baidu.com 这类 CDN 会返回 AAAA，但 IPv6 没有出口路由，
             // aria2 一旦选中 AAAA 就直接以 "unreachable network" 失败、不会回退 IPv4（实测）。
@@ -88,18 +93,35 @@ public sealed class Aria2Engine : IDisposable
         proc.Start();
         proc.BeginOutputReadLine();   // 丢弃输出，防管道堵死
         // stderr 留诊断：不堵管道的同时写调试输出，aria2 启动失败/下载错误可查
-        proc.ErrorDataReceived += (_, e) => { if (e.Data != null) Debug.WriteLine("[aria2] " + e.Data); };
+        proc.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data == null) return;
+            Debug.WriteLine("[aria2] " + e.Data);
+            lock (_stderrTail)   // 留尾部 2KB 供启动失败诊断（深审 F-C05）
+            {
+                _stderrTail.AppendLine(e.Data);
+                if (_stderrTail.Length > 2048) _stderrTail.Remove(0, _stderrTail.Length - 2048);
+            }
+        };
+        proc.Exited += (_, _) => Debug.WriteLine("[aria2] 进程退出");   // 死亡感知，重启由 DownloadManager 轮询触发
         proc.BeginErrorReadLine();
         return proc;
     }
 
     private void WaitRpcReady()
     {
+        _http?.Dispose();   // 重试路径不再泄漏旧实例（深审 F-C06）
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         var deadline = DateTime.Now.AddSeconds(10);
         for (;;)
         {
-            if (_proc!.HasExited) throw new InvalidOperationException("aria2c 启动失败");
+            if (_proc!.HasExited)
+            {
+                string tail;
+                lock (_stderrTail) tail = _stderrTail.ToString().Trim();
+                throw new InvalidOperationException(
+                    $"aria2c 启动失败(退出码 {_proc.ExitCode})" + (tail.Length > 0 ? $",stderr 摘要:{tail}" : ""));
+            }
             try
             {
                 CallAsync("aria2.getVersion").GetAwaiter().GetResult();
@@ -143,7 +165,8 @@ public sealed class Aria2Engine : IDisposable
         try { _http?.Dispose(); } catch { }
         if (_proc is { HasExited: false })
         {
-            try { _proc.Kill(); } catch { }
+            // 等一拍再收：--auto-save-interval=1 已把进度即时落 .aria2，强杀不再丢最多 60s 进度（深审 F-C17）
+            try { _proc.Kill(); _proc.WaitForExit(3000); } catch { }
         }
         _proc?.Dispose();
         _proc = null;

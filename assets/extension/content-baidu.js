@@ -5,7 +5,6 @@ globalThis.__pandreBoot({
   provider: "baidu",
   idKey: "fs_id",
   nameKeys: ["server_filename", "filename", "name"],
-  sizeKeys: ["size", "file_size"],
   isDir: (p) => p.isdir === 1 || p.isdir === true || p.is_dir === true || p.dir === true,
   pageOk: () => location.pathname.startsWith("/disk"),
   // 下载入口接管：网页端对「下载内容大小超过 50MB」的选中项弹「请使用百度网盘客户端下载」，

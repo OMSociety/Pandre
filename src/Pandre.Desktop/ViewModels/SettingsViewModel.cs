@@ -58,14 +58,22 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _aria2Connections = "16";
     [ObservableProperty] private string _aria2MaxConcurrent = "5";
 
-    /// <summary>数字输入校验提示（解析失败时显示，此前静默不保存用户无感知）。</summary>
-    [ObservableProperty] private string? _aria2Hint;
+    /// <summary>两条数字输入各自独立的校验提示（此前共享一条互相抹除，深审 B-10）。</summary>
+    [ObservableProperty] private string? _aria2ConnectionsHint;
+    [ObservableProperty] private string? _aria2MaxConcurrentHint;
 
     // ---- 浏览器接管 ----
     [ObservableProperty] private bool _takeoverEnabled;
 
     /// <summary>接管状态说明（未启用 / 监听地址 / 启动失败原因），为 null 时整行隐藏。</summary>
     [ObservableProperty] private string? _takeoverStatus;
+
+    /// <summary>「重新生成令牌」：换锁，旧扩展 config.js 立即失效，必须重装扩展并在浏览器重载（深审 EC-09）。</summary>
+    public void RotateToken()
+    {
+        AppServices.RotateTakeoverToken();
+        RefreshTakeoverStatus();
+    }
 
     // 功能开关已挪到独立的「界面功能开关」面板（FeaturePanelViewModel），
     // 设置页只留一个入口按钮，避免两处各持一份状态。
@@ -128,9 +136,22 @@ public partial class SettingsViewModel : ViewModelBase
             return;
         }
         var installed = File.Exists(Path.Combine(ExtensionInstaller.TargetDir, "config.js"));
-        TakeoverStatus = installed
-            ? $"本地入口运行中：127.0.0.1:{AppServices.Takeover.Port}\n扩展目录：AppData\\Roaming\\Pandre\\extension（chrome://extensions 加载该目录）"
-            : $"本地入口运行中：127.0.0.1:{AppServices.Takeover.Port}\n点「安装扩展」生成扩展目录，再到 chrome://extensions 加载它。";
+        // config.js 与当前应用的端口/令牌不一致时明说，不误显「运行中」（深审 EC-05）
+        var tokenMatch = false;
+        if (installed)
+        {
+            try
+            {
+                var cfg = File.ReadAllText(Path.Combine(ExtensionInstaller.TargetDir, "config.js"));
+                tokenMatch = cfg.Contains(AppServices.TakeoverToken) && cfg.Contains(AppServices.TakeoverPort.ToString());
+            }
+            catch { /* 读不到按不一致处理 */ }
+        }
+        TakeoverStatus = !installed
+            ? $"本地入口运行中：127.0.0.1:{AppServices.Takeover.Port}\n点「安装扩展」生成扩展目录，再到 chrome://extensions 加载它。"
+            : tokenMatch
+                ? $"本地入口运行中：127.0.0.1:{AppServices.Takeover.Port}\n扩展目录：AppData\\Roaming\\Pandre\\extension（chrome://extensions 加载该目录）"
+                : $"本地入口运行中：127.0.0.1:{AppServices.Takeover.Port}\n扩展目录里的 config.js 与当前应用不一致（端口或令牌变过）：点「安装扩展」重写，再到 chrome://extensions 重载扩展。";
     }
 
     partial void OnSelectedThemeChanged(ThemeOption? value)
@@ -160,21 +181,21 @@ public partial class SettingsViewModel : ViewModelBase
         if (int.TryParse(value, out var n))
         {
             // aria2 的 max-connection-per-server 硬上限 16，超限 aria2c 直接拒绝启动（exit 28），故此处同步钳制
-            Aria2Hint = n is > 0 and <= 16 ? null : "连接数需在 1-16 之间";
+            Aria2ConnectionsHint = n is > 0 and <= 16 ? null : "连接数需在 1-16 之间";
             if (n != AppServices.Aria2Connections && n is > 0 and <= 16)
                 AppServices.Aria2Connections = n;
         }
-        else Aria2Hint = "连接数需为整数（当前改动未保存）";
+        else Aria2ConnectionsHint = "连接数需为整数（当前改动未保存）";
     }
 
     partial void OnAria2MaxConcurrentChanged(string value)
     {
         if (int.TryParse(value, out var n))
         {
-            Aria2Hint = n is > 0 and <= 20 ? null : "同时下载数需在 1-20 之间";
+            Aria2MaxConcurrentHint = n is > 0 and <= 20 ? null : "同时下载数需在 1-20 之间";
             if (n != AppServices.Aria2MaxConcurrent && n is > 0 and <= 20)
                 AppServices.Aria2MaxConcurrent = n;
         }
-        else Aria2Hint = "同时下载数需为整数（当前改动未保存）";
+        else Aria2MaxConcurrentHint = "同时下载数需为整数（当前改动未保存）";
     }
 }

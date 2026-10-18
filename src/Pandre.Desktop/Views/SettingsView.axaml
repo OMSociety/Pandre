@@ -99,7 +99,8 @@
               <TextBlock Classes="secondary" Text="文件保存到本地的位置"/>
             </StackPanel>
             <Grid Grid.Column="2" ColumnDefinitions="Auto,Auto" VerticalAlignment="Center">
-              <TextBox Grid.Column="0" Text="{Binding DownloadDir}" MinWidth="320"/>
+              <TextBox Grid.Column="0" Text="{Binding DownloadDir, UpdateSourceTrigger=LostFocus}" MinWidth="320"
+                       ToolTip.Tip="输入完成后失焦才保存，避免半截路径被写入设置"/>
               <Button Grid.Column="1" Content="浏览…" Click="OnBrowseDownloadDir" Margin="8,0,0,0"
                       ToolTip.Tip="选择下载目录"/>
             </Grid>
@@ -116,8 +117,8 @@
             <TextBox Grid.Column="2" Text="{Binding Aria2Connections}" MinWidth="80" VerticalAlignment="Center"/>
           </Grid>
           <TextBlock Classes="tertiary" FontSize="11" Margin="0,-4,0,0"
-                     IsVisible="{Binding Aria2Hint, Converter={x:Static ObjectConverters.IsNotNull}}"
-                     Text="{Binding Aria2Hint}" TextWrapping="Wrap"/>
+                     IsVisible="{Binding Aria2ConnectionsHint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     Text="{Binding Aria2ConnectionsHint}" TextWrapping="Wrap"/>
 
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
             <PathIcon Grid.Column="0" Data="{x:Static local:AppIcons.ArrowDownload}"
@@ -129,6 +130,9 @@
             </StackPanel>
             <TextBox Grid.Column="2" Text="{Binding Aria2MaxConcurrent}" MinWidth="80" VerticalAlignment="Center"/>
           </Grid>
+          <TextBlock Classes="tertiary" FontSize="11" Margin="0,-4,0,0"
+                     IsVisible="{Binding Aria2MaxConcurrentHint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     Text="{Binding Aria2MaxConcurrentHint}" TextWrapping="Wrap"/>
 
           <!-- 浏览器接管 -->
           <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
@@ -142,12 +146,16 @@
                          IsVisible="{Binding TakeoverStatus, Converter={x:Static ObjectConverters.IsNotNull}}"
                          Text="{Binding TakeoverStatus}" TextWrapping="Wrap"/>
             </StackPanel>
-            <Grid Grid.Column="2" ColumnDefinitions="Auto,Auto" VerticalAlignment="Center">
-              <Button Grid.Column="0" Content="安装扩展" Margin="0,0,10,0"
+            <Grid Grid.Column="2" ColumnDefinitions="Auto,Auto,Auto" VerticalAlignment="Center">
+              <Button Grid.Column="0" Content="重新生成令牌" Margin="0,0,10,0"
+                      IsVisible="{Binding TakeoverEnabled}"
+                      Click="OnRotateTokenClick"
+                      ToolTip.Tip="换一把令牌：旧扩展配置立即失效，需要重装扩展并在浏览器扩展页重载"/>
+              <Button Grid.Column="1" Content="安装扩展" Margin="0,0,10,0"
                       IsVisible="{Binding TakeoverEnabled}"
                       Click="OnInstallExtensionClick"
                       ToolTip.Tip="把扩展文件写到 AppData 并打开所在文件夹"/>
-              <ToggleSwitch Grid.Column="1" IsChecked="{Binding TakeoverEnabled}"
+              <ToggleSwitch Grid.Column="2" IsChecked="{Binding TakeoverEnabled}"
                             OnContent="" OffContent=""/>
             </Grid>
           </Grid>

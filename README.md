@@ -18,6 +18,7 @@
 - 分享管理：创建（有效期可选）、列出、两步取消
 - 离线下载：磁力 / 电驴链接交给云端拉取（仅百度），下载页可看云端任务状态
 - 文件管理：新建文件夹、重命名、删除
+- 浏览器接管：网盘网页端勾选文件一键交给本机下载，大文件下载入口不再跳官方客户端
 
 ## 运行
 
@@ -42,6 +43,7 @@ dotnet build src/Pandre.Desktop/Pandre.Desktop.csproj -c Release
 - [BaiduPCS-Go](https://github.com/qjfoidnh/BaiduPCS-Go)：百度接口签名与上传 / 转存链路参考
 - [QuarkPanTool](https://github.com/ihmily/QuarkPanTool)：夸克转存/分享接口与 UA 门线索（Apache-2.0）
 - [QuarkPan](https://github.com/lich0821/QuarkPan)：夸克上传与分享转存接口参考（MIT）
+- [OpenList](https://github.com/OpenListTeam/OpenList) / [AList](https://github.com/AlistGo/alist)：夸克预览参数参考（AGPL-3.0，仅参数设计，未复制代码）
 - [Ghost Downloader 3](https://github.com/XiaoYouChR/Ghost-Downloader-3)：交互与视觉质感的参照
 - [aria2](https://github.com/aria2/aria2)：下载引擎（GPL-2.0 独立子进程，许可证文本随包附带）
 - [Avalonia](https://github.com/AvaloniaUI/Avalonia) · [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) · [QRCoder](https://github.com/codebude/QRCoder) · [Fluent System Icons](https://github.com/microsoft/fluentui-system-icons)

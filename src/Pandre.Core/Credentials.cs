@@ -7,14 +7,20 @@ using System.Text.Json;
 namespace Pandre.Core;
 
 /// <summary>登录凭据：Cookie 串 + 展示名 + 取得时间。</summary>
-public sealed record PanCredential(PanProvider Provider, string Cookie, string? Nickname, DateTimeOffset ObtainedAt);
+public sealed record PanCredential(PanProvider Provider, string Cookie, string? Nickname, DateTimeOffset ObtainedAt)
+{
+    // Cookie 即账号等价物：ToString 一律脱敏，防日志/调试器输出泄漏（AGENTS 禁止输出 Cookie 值）。
+    // JSON 落盘走序列化器不受影响。
+    public override string ToString() =>
+        $"{nameof(PanCredential)} {{ {nameof(Provider)} = {Provider}, {nameof(Cookie)} = ***({Cookie.Length} chars), {nameof(Nickname)} = {Nickname}, {nameof(ObtainedAt)} = {ObtainedAt:O} }}";
+}
 
 /// <summary>凭据加密存储：BDUSS 等于百度全站通行证，落盘必须加密。</summary>
 public interface ICredentialStore
 {
     Task SaveAsync(PanCredential credential, CancellationToken ct = default);
     Task<PanCredential?> LoadAsync(PanProvider provider, CancellationToken ct = default);
-    Task ClearAsync(PanProvider provider, CancellationToken ct = default);
+    Task ClearAsync(PanProvider provider);
 }
 
 /// <summary>
@@ -66,7 +72,7 @@ public sealed class CredentialStore : ICredentialStore
         }
     }
 
-    public Task ClearAsync(PanProvider provider, CancellationToken ct = default)
+    public Task ClearAsync(PanProvider provider)
     {
         var path = PathFor(provider);
         if (File.Exists(path)) File.Delete(path);

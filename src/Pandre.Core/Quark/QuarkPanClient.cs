@@ -496,8 +496,9 @@ public sealed class QuarkPanClient : IPanClient
         var ctxByBoundary = new List<string> { "" }; // [k] = 前 k*chunkSize 字节的中间态；[0] 占位（part1 无 ctx）
         var buffer = new byte[1024 * 1024];
         var totalRead = 0L;
-        await using (var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize: 1024 * 1024, useAsync: true))
+        var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 1024 * 1024, useAsync: true);
+        await using (fs.ConfigureAwait(false))
         {
             int read;
             while ((read = await fs.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
@@ -537,8 +538,9 @@ public sealed class QuarkPanClient : IPanClient
         var partCount = fileSize < 5L * 1024 * 1024 ? 1
             : (int)((fileSize + chunkSize - 1) / chunkSize);
         var etags = new string[partCount];
-        await using (var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize: 1024 * 1024, useAsync: true))
+        var fs2 = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 1024 * 1024, useAsync: true);
+        await using (fs2.ConfigureAwait(false))
         {
             for (var seq = 1; seq <= partCount; seq++)
             {
@@ -546,10 +548,10 @@ public sealed class QuarkPanClient : IPanClient
                 var offset = (long)(seq - 1) * chunkSize;
                 var partLen = (int)Math.Min(chunkSize, fileSize - offset);
                 var partBuf = new byte[partLen];
-                fs.Seek(offset, SeekOrigin.Begin);
+                fs2.Seek(offset, SeekOrigin.Begin);
                 var read = 0;
                 while (read < partLen)
-                    read += await fs.ReadAsync(partBuf.AsMemory(read, partLen - read), ct).ConfigureAwait(false);
+                    read += await fs2.ReadAsync(partBuf.AsMemory(read, partLen - read), ct).ConfigureAwait(false);
 
                 // X-Oss-Hash-Ctx：part>=2 带前缀中间态（流式快照，O(n) 总量）
                 var hashCtx = seq > 1 && seq - 1 < ctxByBoundary.Count ? ctxByBoundary[seq - 1] : null;

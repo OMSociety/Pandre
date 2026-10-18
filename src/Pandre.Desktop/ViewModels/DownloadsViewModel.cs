@@ -83,7 +83,6 @@ public sealed class OfflineTaskRowViewModel : ViewModelBase
         7 => "已取消",
         _ => $"未知({Task.Status})",
     };
-    public bool IsDone => Task.Status == 0;
 }
 
 /// <summary>下载面板：刷新、暂停/继续、移除；目录设置；云端离线任务只读列表。</summary>
@@ -147,6 +146,8 @@ public partial class DownloadsViewModel : ViewModelBase
     /// <summary>从 DownloadManager 的快照重建行（线程→UI）。</summary>
     public void Refresh()
     {
+        // 「保存到」实时跟设置页走：入队实际读 AppServices.DownloadDir，标签冻结启动值会误导（深审 B-02）
+        DownloadDir = AppServices.DownloadDir;
         var tasks = AppServices.Downloads.Tasks;
         // 简单整体重建（P1 规模足够）
         Rows.Clear();

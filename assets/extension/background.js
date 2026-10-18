@@ -1,6 +1,6 @@
 // Pandre 接管扩展 · service worker
 // 职责单一：收内容脚本的下载请求，转发给本机 Pandre（回环 HTTP + 令牌）。
-// service worker 里发 fetch 不受页面私网访问约束（host_permissions 已授予目标站）。
+// service worker 里发 fetch 不受页面私网访问（PNA）约束。
 importScripts("config.js");
 
 const CFG = globalThis.PANDRE_CONFIG || { port: 17821, token: "" };

@@ -93,11 +93,12 @@ public partial class LoginCardViewModel : ViewModelBase
             });
 
             var cred = await _flow.WaitAsync(progress, _waitCts.Token);
+            // 凭据已到手：落盘与取账号不再受取消影响——半途取消会「凭据已存却报已取消」（深审 B-04）
             await AppServices.SaveCredentialAsync(cred);
 
             var client = _provider == PanProvider.Baidu
                 ? (IPanClient)AppServices.Baidu : AppServices.Quark;
-            var info = await client.GetAccountAsync(_waitCts.Token);
+            var info = await client.GetAccountAsync(CancellationToken.None);
             IsLoggedIn = true;
             AccountName = info.Nickname ?? cred.Nickname ?? "已登录";
             AccountText = $"{AccountName} · {Fmt.Size(info.UsedBytes)} / {Fmt.Size(info.TotalBytes)}";
@@ -116,6 +117,8 @@ public partial class LoginCardViewModel : ViewModelBase
             IsBusy = false;
             _flow?.Dispose();
             _flow = null;
+            _waitCts?.Dispose();   // 每轮扫码的取消源用完即弃，防句柄泄漏（深审 B-04）；Cancel() 对 null 安全
+            _waitCts = null;
         }
     }
 

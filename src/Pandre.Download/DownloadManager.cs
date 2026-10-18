@@ -12,6 +12,7 @@ public sealed class DownloadTask
     public required string FileName { get; init; }
     public required string SaveDir { get; init; }
     public string? Gid { get; set; }                   // aria2 gid
+    public string? Url { get; init; }                  // 原始链接，同链接重复入队查重用
     public DownloadStatus Status { get; set; } = DownloadStatus.Queued;
     public long TotalBytes { get; set; }
     public long CompletedBytes { get; set; }
@@ -60,9 +61,18 @@ public sealed class DownloadManager : IDisposable
 
     public async Task<DownloadTask> EnqueueAsync(PanDownloadLink link, string saveDir)
     {
-        // 兜底：先用后启都自愈（沿用上次请求的配置，不经此路径绕过设置页）
-        if (_pollCts == null) Start(_lastExePath, _lastConnections, _lastMaxConcurrent);
+        // 兜底：先用后启都自愈（沿用上次请求的配置，不经此路径绕过设置页）。
+        // Start 同步等 RPC 就绪（最长 10s），不能占着 UI 线程，丢线程池（深审 F-C12）
+        if (_pollCts == null)
+            await Task.Run(() => Start(_lastExePath, _lastConnections, _lastMaxConcurrent)).ConfigureAwait(false);
         Directory.CreateDirectory(saveDir);
+        lock (_gate)
+        {
+            // 同链接且仍活跃的已有任务：拒绝重复入队，防重复流量（深审 F-C15）
+            if (_tasks.Any(x => x.Url == link.Url &&
+                                x.Status is DownloadStatus.Queued or DownloadStatus.Downloading or DownloadStatus.Paused))
+                throw new InvalidOperationException($"同一链接已在下载队列中:{link.File.Name}");
+        }
         var options = new Dictionary<string, object>
         {
             ["out"] = link.File.Name,
@@ -81,6 +91,7 @@ public sealed class DownloadManager : IDisposable
             FileName = link.File.Name,
             SaveDir = saveDir,
             Gid = gid,
+            Url = link.Url,
             TotalBytes = link.File.Size,
         };
         lock (_gate) _tasks.Add(task);
@@ -104,11 +115,29 @@ public sealed class DownloadManager : IDisposable
     /// </summary>
     public async Task RemoveAsync(DownloadTask t, bool deleteLocalFiles = false)
     {
+        var effective = t.Status;
         if (t.Gid != null)
         {
+            // 先问 aria2 要权威状态：完成刚落 aria2 但 UI 轮询未刷时，内存态仍显示「下载中」，
+            // 按内存态判会误把成品当过程文件删掉（深审 F-C09）
             try
             {
-                if (t.Status is DownloadStatus.Downloading or DownloadStatus.Queued or DownloadStatus.Paused)
+                var st = await _engine.CallAsync("aria2.tellStatus", t.Gid).ConfigureAwait(false);
+                effective = st.GetProperty("status").GetString() switch
+                {
+                    "active" => DownloadStatus.Downloading,
+                    "waiting" => DownloadStatus.Queued,
+                    "paused" => DownloadStatus.Paused,
+                    "complete" => DownloadStatus.Complete,
+                    "error" => DownloadStatus.Error,
+                    "removed" => DownloadStatus.Removed,
+                    _ => effective,
+                };
+            }
+            catch { /* 任务已不在（结果被清）——按内存态 */ }
+            try
+            {
+                if (effective is DownloadStatus.Downloading or DownloadStatus.Queued or DownloadStatus.Paused)
                     await _engine.CallAsync("aria2.forceRemove", t.Gid).ConfigureAwait(false);
                 else
                     await _engine.CallAsync("aria2.removeDownloadResult", t.Gid).ConfigureAwait(false);
@@ -122,7 +151,7 @@ public sealed class DownloadManager : IDisposable
         var fullPath = Path.GetFullPath(t.SavePath);
         if (!fullPath.StartsWith(fullDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return;
 
-        var deletePartial = t.Status != DownloadStatus.Complete;
+        var deletePartial = effective != DownloadStatus.Complete;
         if (deletePartial || deleteLocalFiles)
         {
             TryDelete(fullPath);
@@ -168,7 +197,7 @@ public sealed class DownloadManager : IDisposable
             try
             {
                 var active = await _engine.CallAsync("aria2.tellActive").ConfigureAwait(false);
-                // waiting/stopped 取 1000 条：队列或停止任务超过 100 时旧任务不丢状态更新
+                // waiting/stopped 各取 1000 条：任务多于默认页（100 条）时不丢状态更新
                 var waiting = await _engine.CallAsync("aria2.tellWaiting", 0, 1000).ConfigureAwait(false);
                 var stopped = await _engine.CallAsync("aria2.tellStopped", 0, 1000).ConfigureAwait(false);
                 var byGid = new Dictionary<string, JsonElement>();
@@ -180,9 +209,20 @@ public sealed class DownloadManager : IDisposable
                 lock (_gate) snapshot = _tasks.ToList();
                 foreach (var t in snapshot)
                 {
-                    if (t.Gid == null || !byGid.TryGetValue(t.Gid, out var st)) continue;
                     try
                     {
+                        if (t.Gid == null || !byGid.TryGetValue(t.Gid, out var st))
+                        {
+                            // gid 不在 aria2 三张表里且任务仍处活跃态：引擎重启过或结果被清理，
+                            // 置 Error 防任务行冻结在「下载中」（深审 F-C08/EC-03）；终态行不动
+                            if (t.Gid != null && t.Status is DownloadStatus.Queued or DownloadStatus.Downloading or DownloadStatus.Paused)
+                            {
+                                t.Status = DownloadStatus.Error;
+                                t.ErrorMessage = "与下载引擎失去联系（引擎重启或结果被清理）";
+                                TaskUpdated?.Invoke(t);
+                            }
+                            continue;
+                        }
                         UpdateTask(t, st);
                         TaskUpdated?.Invoke(t);
                     }
@@ -198,6 +238,24 @@ public sealed class DownloadManager : IDisposable
             {
                 // 轮询失败（aria2 暂时不可用）下个周期再试；留调试痕迹不静默
                 Debug.WriteLine("[DownloadManager] 轮询失败: " + ex.Message);
+                // 引擎进程死了（CallAsync 连不上即知）：自动拉起，不再整轮空转（深审 EC-03）。
+                // 队列是 aria2 内存态，重启后旧 gid 全失效，上面的 gid 失配逻辑会把活跃行转 Error
+                if (!_engine.IsAlive)
+                {
+                    try
+                    {
+                        lock (_startGate)
+                        {
+                            if (!_engine.IsAlive)
+                            {
+                                _engine.Dispose();
+                                _engine.Start(_lastExePath, _lastConnections, _lastMaxConcurrent);
+                                Debug.WriteLine("[DownloadManager] 检测到 aria2c 退出，已自动重启引擎");
+                            }
+                        }
+                    }
+                    catch (Exception re) { Debug.WriteLine("[DownloadManager] 引擎自动重启失败: " + re.Message); }
+                }
             }
             try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch (OperationCanceledException) { break; }
         }
@@ -226,7 +284,16 @@ public sealed class DownloadManager : IDisposable
         t.CompletedBytes = SafeLong(st, "completedLength");
         t.SpeedBps = SafeLong(st, "downloadSpeed");
         if (t.Status == DownloadStatus.Error)
-            t.ErrorMessage = st.TryGetProperty("errorMessage", out var em) ? em.GetString() : $"errorCode={st.GetProperty("errorCode").GetString()}";
+        {
+            // errorMessage 缺失时降级取 errorCode；两者皆缺给兜底文案，不让 KeyNotFound 被
+            // 外层逐任务 catch 吞掉后错误信息留空（深审 F-C14）
+            if (st.TryGetProperty("errorMessage", out var em) && em.GetString() is { Length: > 0 } msg)
+                t.ErrorMessage = msg;
+            else if (st.TryGetProperty("errorCode", out var ec))
+                t.ErrorMessage = $"errorCode={ec.GetString()}";
+            else
+                t.ErrorMessage = "下载失败（aria2 未返回错误详情）";
+        }
     }
 
     public void Dispose()

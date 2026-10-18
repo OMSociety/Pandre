@@ -4,7 +4,6 @@ globalThis.__pandreBoot({
   provider: "quark",
   idKey: "fid",
   nameKeys: ["file_name", "fileName", "name"],
-  sizeKeys: ["size", "file_size"],
   isDir: (p) => p.dir === true || p.is_dir === true || p.isdir === 1 || p.isdir === true,
   pageOk: () => location.pathname.startsWith("/list"),
   // 下载入口接管：网页端对 100MB 以上文件的下载答 23018（Web 端 UA 门，见开发文档 §4），

@@ -115,6 +115,15 @@ public static class AppServices
         }
     }
 
+    /// <summary>重新生成接管令牌并持久化（换锁：旧扩展 config.js 立即失效，需重装扩展并在浏览器重载，深审 EC-09）。</summary>
+    public static void RotateTakeoverToken()
+    {
+        var s = LoadSettings();
+        s.TakeoverToken = Convert.ToHexString(
+            System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        SaveSettings(s);
+    }
+
     // ===== 功能开关（全局：百度与夸克同时生效） =====
     /// <summary>功能开关变化后通知各页面刷新可见性。设置页改动时触发。</summary>
     public static event Action? FeatureFlagsChanged;

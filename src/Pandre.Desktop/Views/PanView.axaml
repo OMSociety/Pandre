@@ -20,7 +20,7 @@
     </Grid>
     <!-- P2 操作行 -->
     <WrapPanel Grid.Row="1" Margin="0,0,0,8">
-      <Button Margin="0,0,8,0" Click="OnUploadClick" ToolTip.Tip="上传本地文件到当前目录">
+      <Button Margin="0,0,8,0" Click="OnUploadClick" IsEnabled="{Binding !IsUploading}" ToolTip.Tip="上传本地文件到当前目录">
         <StackPanel Orientation="Horizontal" Spacing="6">
           <PathIcon Data="{x:Static local:AppIcons.ArrowUpload}" Width="15" Height="15" VerticalAlignment="Center"/>
           <TextBlock Text="上传" VerticalAlignment="Center"/>
@@ -50,7 +50,7 @@
           <TextBlock Text="分享管理" VerticalAlignment="Center"/>
         </StackPanel>
       </Button>
-      <Button Margin="0,0,8,0" Command="{Binding ShareSelectedCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="为选中项创建永久分享链接">
+      <Button Margin="0,0,8,0" Command="{Binding ShareSelectedCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="为选中项创建分享链接（有效期可选）">
         <StackPanel Orientation="Horizontal" Spacing="6">
           <PathIcon Data="{x:Static local:AppIcons.Share}" Width="15" Height="15" VerticalAlignment="Center"/>
           <TextBlock Text="分享" VerticalAlignment="Center"/>
