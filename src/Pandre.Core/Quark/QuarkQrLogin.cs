@@ -59,7 +59,19 @@ public sealed class QuarkQrLogin : IQrLoginFlow
             }
             catch (Exception ex) when (ex is HttpRequestException or System.Net.Sockets.SocketException && ++netFailStreak <= 5)
             {
-                continue; // 单次网络抖动容错；连续 5 次失败跳出容错，按超时收尾
+                continue; // 单次网络抖动容错
+            }
+            catch (Exception ex) when (ex is HttpRequestException or System.Net.Sockets.SocketException)
+            {
+                // 第 6 次起不再裸透传：按网络故障收尾（深审 PC-10），与百度侧口径一致
+                throw new PanException($"夸克扫码轮询连续网络失败，已按网络故障收尾（{ex.Message}）");
+            }
+            catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // 单次请求超时容错（与百度侧对齐）；用户主动取消不走这里（ct 已检查），照常透传
+                if (++netFailStreak > 5)
+                    throw new PanException("夸克扫码轮询连续网络失败，已按网络故障收尾（请求超时）");
+                continue;
             }
             var resp = JsonDocument.Parse(body);
             var status = resp.RootElement.GetProperty("status").GetInt64();

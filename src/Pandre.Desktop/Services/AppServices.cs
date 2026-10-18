@@ -40,11 +40,11 @@ public static class AppServices
 
     // ===== 设置（theme/material/downloadDir 统一持久化到 settings.json） =====
 
-    /// <summary>主题：system / light / dark</summary>
+    /// <summary>主题：system / light / dark。变更后需重刷材质：None 材质的窗口实底色依赖当前主题。</summary>
     public static string Theme
     {
         get => LoadSettings().Theme ?? "system";
-        set { var s = LoadSettings(); s.Theme = value; SaveSettings(s); ApplyTheme(); }
+        set { var s = LoadSettings(); s.Theme = value; SaveSettings(s); ApplyTheme(); ApplyMaterial(); }
     }
 
     /// <summary>透明材质：Mica / Acrylic / MicaAlt / Aero / None</summary>

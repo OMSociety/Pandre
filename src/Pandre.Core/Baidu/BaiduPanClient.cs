@@ -24,6 +24,14 @@ public sealed class BaiduPanClient : IPanClient
     public PanProvider Provider => PanProvider.Baidu;
     public bool IsAuthenticated => _http != null;
 
+    /// <summary>解除会话：清空内存会话态（退出登录/会话过期用），IsAuthenticated 归 false。磁盘凭据由 CredentialsStore 负责。</summary>
+    public void Detach()
+    {
+        Dispose();
+        _jar = null;
+        _nickname = null;
+    }
+
     public void Attach(PanCredential credential)
     {
         if (credential.Provider != PanProvider.Baidu)
@@ -40,16 +48,14 @@ public sealed class BaiduPanClient : IPanClient
 
     private HttpClient Http => _http ?? throw new InvalidOperationException("未登录：先 Attach");
 
-    /// <summary>errno != 0 时抛出；-6/110 为登录态失效。响应缺 errno 字段时在错误信息里标注。</summary>
+    /// <summary>errno != 0 时抛出；-6/110 为登录态失效。响应缺 errno 字段视为异常（与夸克缺 status 抛错对齐），避免被当成功静默走到下游裸崩。</summary>
     private static void ThrowIfErrno(JsonElement root, string op)
     {
-        var hasErrno = root.TryGetProperty("errno", out var e);
-        var errno = hasErrno ? e.GetInt32() : 0;
+        if (!root.TryGetProperty("errno", out var e))
+            throw new PanException($"百度{op}失败（响应缺 errno 包络字段）");
+        var errno = e.GetInt32();
         if (errno != 0)
-        {
-            var missing = !hasErrno ? "（响应缺 errno 包络字段）" : "";
-            throw new PanException($"百度{op}失败 errno={errno}{missing}", errno);
-        }
+            throw new PanException($"百度{op}失败 errno={errno}", errno);
     }
 
     public async Task<PanAccountInfo> GetAccountAsync(CancellationToken ct = default)
@@ -115,7 +121,7 @@ public sealed class BaiduPanClient : IPanClient
         };
         var byPath = new Dictionary<string, PanFile>();
         foreach (var f in files)
-            byPath[f.Path] = f; // 重路径允许（UI 可能有重复行），取后者
+            byPath[f.Path] = f; // 按 path 归并；调用方不应传重复行，重复时下方完整性校验会报「请求 N 个仅返回 M 个」
         var links = new List<PanDownloadLink>();
         // 注意：filemetas 的条目在 info 数组下（不是 list）
         foreach (var it in root.GetProperty("info").EnumerateArray())
@@ -236,9 +242,9 @@ public sealed class BaiduPanClient : IPanClient
                 blockList);
     }
 
-    /// <summary>上传本地文件（precreate 秒传 → superfile2 分片 → create 合并）。</summary>
+    /// <summary>上传本地文件（precreate 秒传 → superfile2 分片 → create 合并）。同名冲突统一跳过（rtype=2）；界面未提供策略选项，需要时再恢复参数。</summary>
     public async Task<PanUploadResult> UploadAsync(
-        string localPath, PanFile? targetDir, PanConflictPolicy policy = PanConflictPolicy.Skip,
+        string localPath, PanFile? targetDir,
         IProgress<PanUploadProgress>? progress = null, CancellationToken ct = default)
     {
         var fi = new FileInfo(localPath);
@@ -248,7 +254,7 @@ public sealed class BaiduPanClient : IPanClient
         var targetDirPath = (targetDir?.Path ?? "/").TrimEnd('/');
         if (targetDirPath == "") targetDirPath = "/";
         var targetPath = (targetDirPath == "/" ? "" : targetDirPath) + "/" + fileName;
-        var rtype = policy == PanConflictPolicy.Skip ? "2" : "3";
+        var rtype = "2";   // 同名冲突统一跳过（rtype=2）
         var blockSize = BlockSize(fileSize);
 
         progress?.Report(new(fileSize, 0, 0, 0, "计算哈希"));

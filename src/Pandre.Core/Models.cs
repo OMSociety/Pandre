@@ -40,8 +40,8 @@ public sealed class PanException(string message, long? code = null) : Exception(
 {
     public long? Code { get; } = code;
 
-    /// <summary>是否为登录态失效（百度 errno=-6/110；夸克 401/31001/31004/31007）。</summary>
-    public bool IsAuthExpired => Code is -6 or 110 or 31001 or 31004 or 31007 || Message.Contains("401");
+    /// <summary>是否为登录态失效（百度 errno=-6/110；夸克 code 401/31001/31004/31007，抛出点已把 code 放进 Code）。</summary>
+    public bool IsAuthExpired => Code is -6 or 110 or 401 or 31001 or 31004 or 31007;
 }
 
 /// <summary>扫码登录状态机。</summary>
@@ -58,15 +58,6 @@ public enum QrLoginState
 public sealed record QrCodePayload(byte[]? ImagePng, string? Text, string Hint);
 
 // ============ P2：管理与分享 ============
-
-/// <summary>重名策略。</summary>
-public enum PanConflictPolicy
-{
-    /// <summary>同名跳过（rtype=2）。</summary>
-    Skip,
-    /// <summary>覆盖（rtype=3）。</summary>
-    Overwrite,
-}
 
 /// <summary>转存一份外部分享链接到自己网盘的结果。</summary>
 public sealed record PanSaveShareResult(

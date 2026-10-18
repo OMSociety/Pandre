@@ -15,6 +15,9 @@ public interface IPanClient : IDisposable
     /// <summary>附着登录态（扫码结果或凭据存储恢复）。</summary>
     void Attach(PanCredential credential);
 
+    /// <summary>解除会话：清空内存会话态（退出登录/会话过期用），调用后 IsAuthenticated 为 false。磁盘凭据由凭据存储负责。</summary>
+    void Detach();
+
     /// <summary>导出当前最新 Cookie（接口可能续期/补发 Cookie，如夸克 __puus），供持久化。</summary>
     string? ExportCookie();
 
@@ -77,7 +80,7 @@ public interface IPanClient : IDisposable
     /// 百度走 precreate 秒传→superfile2 分片→create 合并；夸克走 upload/pre→分片→finish。
     /// </summary>
     Task<PanUploadResult> UploadAsync(
-        string localPath, PanFile? targetDir, PanConflictPolicy policy = PanConflictPolicy.Skip,
+        string localPath, PanFile? targetDir,
         IProgress<PanUploadProgress>? progress = null, CancellationToken ct = default) =>
         throw new NotSupportedException();
 }
@@ -89,7 +92,7 @@ public interface IQrLoginFlow : IDisposable
 
     Task<QrCodePayload> GetQrCodeAsync(CancellationToken ct = default);
 
-    /// <summary>轮询直到确认/过期/取消；通过 progress 上报 Waiting→Scanned→Confirmed 状态。</summary>
+    /// <summary>轮询直到确认/过期/取消；通过 progress 上报状态（百度 Waiting→Scanned→Confirmed；夸克无 Scanned 中间态，Waiting→Confirmed）。</summary>
     Task<PanCredential> WaitAsync(IProgress<QrLoginState>? progress = null, CancellationToken ct = default);
 }
 

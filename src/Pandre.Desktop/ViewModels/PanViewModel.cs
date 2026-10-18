@@ -261,7 +261,7 @@ public partial class PanViewModel : ViewModelBase
                 var progress = new Progress<PanUploadProgress>(p =>
                     UploadProgressText = $"[{i + 1}/{paths.Count}] {name}：{p.Phase} " +
                         (p.TotalBytes > 0 ? $"{p.DoneBytes * 100 / Math.Max(p.TotalBytes, 1)}%" : ""));
-                var result = await Client.UploadAsync(paths[i], _dirStack[^1], PanConflictPolicy.Skip, progress);
+                var result = await Client.UploadAsync(paths[i], _dirStack[^1], progress);
                 UploadProgressText = result.Rapid
                     ? $"[{i + 1}/{paths.Count}] {name}：秒传命中"
                     : $"[{i + 1}/{paths.Count}] {name}：完成";

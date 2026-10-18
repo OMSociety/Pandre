@@ -31,6 +31,14 @@ public sealed class QuarkPanClient : IPanClient
     public PanProvider Provider => PanProvider.Quark;
     public bool IsAuthenticated => _http != null;
 
+    /// <summary>解除会话：清空内存会话态（退出登录/会话过期用），IsAuthenticated 归 false。磁盘凭据由 CredentialsStore 负责。</summary>
+    public void Detach()
+    {
+        Dispose();
+        _jar = null;
+        _nickname = null;
+    }
+
     public void Attach(PanCredential credential)
     {
         if (credential.Provider != PanProvider.Quark)
@@ -145,7 +153,7 @@ public sealed class QuarkPanClient : IPanClient
         var links = new List<PanDownloadLink>();
         var byId = new Dictionary<string, PanFile>();
         foreach (var f in files)
-            byId[f.Id] = f; // 重 Id 允许（UI 可能有重复行），取后者
+            byId[f.Id] = f; // 按 fid 归并；调用方不应传重复行，重复时下方完整性校验会报「请求 N 个仅返回 M 个」
         foreach (var it in root.GetProperty("data").EnumerateArray())
         {
             var fid = it.GetProperty("fid").GetString()!;
@@ -240,10 +248,7 @@ public sealed class QuarkPanClient : IPanClient
                 filelist = files.Select(f => f.Id).ToArray(),
                 exclude_fids = Array.Empty<string>(),
             }, "移动", ct).ConfigureAwait(false);
-        if (data.ValueKind == JsonValueKind.Object &&
-            !(data.TryGetProperty("finish", out var fin) && fin.GetBoolean()) &&
-            data.TryGetProperty("task_id", out var tid))
-            await WaitTaskAsync(tid.GetString()!, "移动", ct).ConfigureAwait(false);
+        await FinishTaskOrThrowAsync(data, "移动", ct);
     }
 
     public async Task CopyAsync(IReadOnlyList<PanFile> files, PanFile? targetDir, CancellationToken ct = default)
@@ -257,10 +262,7 @@ public sealed class QuarkPanClient : IPanClient
                 action_type = 2,
                 copy_source = 1,
             }, "复制", ct).ConfigureAwait(false);
-        if (data.ValueKind == JsonValueKind.Object &&
-            !(data.TryGetProperty("finish", out var fin) && fin.GetBoolean()) &&
-            data.TryGetProperty("task_id", out var tid))
-            await WaitTaskAsync(tid.GetString()!, "复制", ct).ConfigureAwait(false);
+        await FinishTaskOrThrowAsync(data, "复制", ct);
     }
 
     public async Task DeleteAsync(IReadOnlyList<PanFile> files, CancellationToken ct = default)
@@ -272,10 +274,25 @@ public sealed class QuarkPanClient : IPanClient
                 filelist = files.Select(f => f.Id).ToArray(),
                 exclude_fids = Array.Empty<string>(),
             }, "删除", ct).ConfigureAwait(false);
-        if (data.ValueKind == JsonValueKind.Object &&
-            !(data.TryGetProperty("finish", out var fin) && fin.GetBoolean()) &&
-            data.TryGetProperty("task_id", out var tid))
-            await WaitTaskAsync(tid.GetString()!, "删除", ct).ConfigureAwait(false);
+        await FinishTaskOrThrowAsync(data, "删除", ct);
+    }
+
+    /// <summary>
+    /// 异步任务型操作的收尾：finish=true 同步完成；有 task_id 进轮询；
+    /// 两者皆无（响应缺 data / 空对象）视为状态不明抛错，不静默当成功（深审 PC-11）。
+    /// </summary>
+    private async Task FinishTaskOrThrowAsync(JsonElement data, string op, CancellationToken ct)
+    {
+        if (data.ValueKind == JsonValueKind.Object)
+        {
+            if (data.TryGetProperty("finish", out var fin) && fin.GetBoolean()) return;
+            if (data.TryGetProperty("task_id", out var tid))
+            {
+                await WaitTaskAsync(tid.GetString()!, op, ct).ConfigureAwait(false);
+                return;
+            }
+        }
+        throw new PanException($"夸克{op}失败（响应既无 finish 也无 task_id，状态不明）");
     }
 
     /// <summary>转存外部分享链接（4 步链：token → detail → save → task）。</summary>
@@ -374,8 +391,13 @@ public sealed class QuarkPanClient : IPanClient
     /// <summary>创建分享（3 步链：share → task 取 share_id → share/password 取链接）。</summary>
     public async Task<PanShare> CreateShareAsync(PanShareOptions options, CancellationToken ct = default)
     {
-        // expired_type：永久=1 1天=2 7天=3 30天=4（QuarkPanTool 菜单映射）
-        var expiredType = options.ExpireDays switch { 0 => 1, 1 => 2, 30 => 4, _ => 3 };
+        // expired_type：永久=1 1天=2 7天=3 30天=4（QuarkPanTool 菜单映射）。非支持档位显式拒绝，
+        // 不静默收敛到 7 天档（否则 ExpiresAt 按请求档位算会谎报过期时间）
+        var expiredType = options.ExpireDays switch
+        {
+            0 => 1, 1 => 2, 7 => 3, 30 => 4,
+            _ => throw new PanException($"夸克分享不支持 {options.ExpireDays} 天有效期（支持 0/1/7/30）"),
+        };
         var hasPass = !string.IsNullOrEmpty(options.Passcode);
         var body = new Dictionary<string, object?>
         {
@@ -420,7 +442,7 @@ public sealed class QuarkPanClient : IPanClient
     /// 逐分片 auth+PUT OSS（3 次重试）→ auth+POST 合并 XML → finish。
     /// </summary>
     public async Task<PanUploadResult> UploadAsync(
-        string localPath, PanFile? targetDir, PanConflictPolicy policy = PanConflictPolicy.Skip,
+        string localPath, PanFile? targetDir,
         IProgress<PanUploadProgress>? progress = null, CancellationToken ct = default)
     {
         var fi = new FileInfo(localPath);

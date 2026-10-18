@@ -131,9 +131,9 @@ globalThis.__pandreBoot = function (SITE) {
     if (sig === currentSig) return;
     currentSig = sig;
     current = sel;
-    if (sel.missed > 0 && sel.files.length === 0 && !warnedMiss) {
+    if (sel.missed > 0 && !warnedMiss) {
       warnedMiss = true;
-      console.warn("[pandre] 检测到勾选但未能从页面组件状态取到文件数据（站点结构可能已变），请把这条日志反馈给 Pandre。");
+      console.warn("[pandre] 有 " + sel.missed + " 项勾选未能从页面组件状态取到文件数据（站点结构可能已变），请把这条日志反馈给 Pandre。");
     }
     ensureUi();
     renderFab();
@@ -151,12 +151,19 @@ globalThis.__pandreBoot = function (SITE) {
 
   function onFabClick() {
     if (sending || current.files.length === 0) return;
-    submitToPandre(current.files, current.skippedDirs, "");
+    submitToPandre(current.files, current.skippedDirs,
+      current.missed > 0 ? `另有 ${current.missed} 项勾选未能读取，未包含在内。` : "");
   }
 
   // ---------- 提交给 Pandre ----------
   async function submitToPandre(files, skippedDirs, note) {
-    if (sending || files.length === 0) return;
+    if (files.length === 0) return;
+    if (sending) {
+      // 在途时不吞点击：下载入口拦截路径已 preventDefault（网页原生下载不会发生），
+      // 这里再静默 return 会让用户这次点击无任何反馈（深审 F-C02）
+      showToast("正在交给 Pandre，请稍候…", false);
+      return;
+    }
     sending = true;
     renderFab();
     try {
@@ -246,8 +253,9 @@ globalThis.__pandreBoot = function (SITE) {
     console.info(
       `[pandre] 接管下载入口：${sel.files.length} 个文件，合计 ${total} 字节（${sel.from} 来源，` +
       `门槛 ${limitMb}MB ${gate.byTotal ? "按合计" : "按单文件"}）`);
+    const missNote = sel.missed > 0 ? `另有 ${sel.missed} 项勾选未能读取，未包含在内。` : "";
     submitToPandre(sel.files, sel.skippedDirs,
-      `（超过网页端 ${limitMb}MB 的下载会跳官方客户端，这里已直接交给 Pandre）`);
+      `（超过网页端 ${limitMb}MB 的下载会跳官方客户端，这里已直接交给 Pandre）` + missNote);
   }
 
   function onDocumentPointerDownCapture(e) {

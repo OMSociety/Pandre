@@ -48,10 +48,13 @@ public sealed class Aria2Engine : IDisposable
                 WaitRpcReady();
                 break;
             }
-            catch when (attempt < 3)
+            catch
             {
+                // 每次失败都必须清掉 _proc：留着会让 Start 的 _proc != null 短路永久跳过重拉，
+                // 兜底启动也只会撞「先 Start()」异常，应用重启前下载彻底不可用（深审 CL-01）
                 _proc.Dispose();
                 _proc = null;
+                if (attempt >= 3) throw;
             }
         }
     }

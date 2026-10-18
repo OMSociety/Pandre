@@ -13,6 +13,9 @@ namespace Pandre.Desktop.ViewModels;
 public partial class LoginCardViewModel : ViewModelBase
 {
     private readonly PanProvider _provider;
+
+    /// <summary>当前提供方对应的客户端实例（退出登录/会话过期时要连内存态一起解除）。</summary>
+    private IPanClient CurrentClient => _provider == PanProvider.Baidu ? AppServices.Baidu : AppServices.Quark;
     private IQrLoginFlow? _flow;
     private CancellationTokenSource? _waitCts;
 
@@ -128,6 +131,8 @@ public partial class LoginCardViewModel : ViewModelBase
     private async Task LogoutAsync()
     {
         await AppServices.Credentials.ClearAsync(_provider);
+        // 内存会话态一并解除（深审 EC-01）：否则 IsAuthenticated 恒真，网盘页与网页接管继续用旧会话，与「未登录」UI 自相矛盾
+        CurrentClient.Detach();
         IsLoggedIn = false;
         AccountName = "";
         AccountText = "";
@@ -139,7 +144,7 @@ public partial class LoginCardViewModel : ViewModelBase
     /// <summary>启动时恢复：凭据存在且 GetAccountAsync 通了 = 已登录。</summary>
     public async Task RefreshAccountAsync()
     {
-        var client = _provider == PanProvider.Baidu ? (IPanClient)AppServices.Baidu : AppServices.Quark;
+        var client = CurrentClient;
         var cred = await AppServices.Credentials.LoadAsync(_provider);
         if (cred == null) { IsLoggedIn = false; StatusText = "未登录"; return; }
         try
@@ -154,6 +159,7 @@ public partial class LoginCardViewModel : ViewModelBase
         catch (PanException ex) when (ex.IsAuthExpired)
         {
             await AppServices.Credentials.ClearAsync(_provider);
+            client.Detach();   // 会话过期：内存态一并解除（深审 EC-01），否则接管与网盘页继续用旧会话
             IsLoggedIn = false;
             StatusText = "登录已过期，请重新扫码";
         }
