@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Pandre 盘多录 · 网盘下载接管",
   "version": "1.0.0",
-  "description": "把百度网盘 / 夸克网盘网页版里选中的文件直接交给本机 Pandre（盘多录）下载。",
+  "description": "把百度网盘 / 夸克网盘网页版的下载（含大文件跳客户端那一步）直接交给本机 Pandre（盘多录）。",
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
