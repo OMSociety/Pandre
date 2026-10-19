@@ -24,7 +24,7 @@ public sealed class Aria2Engine : IDisposable
     private int _idSeq;
     private readonly StringBuilder _stderrTail = new();
 
-    /// <summary>aria2c 进程是否存活（供调用方做死亡感知与自动重启，深审 EC-03）。</summary>
+    /// <summary>aria2c 进程是否存活（供调用方做死亡感知与自动重启）。</summary>
     public bool IsAlive => _proc is { HasExited: false };
 
     /// <summary>aria2c.exe 的约定位置：应用目录 assets/windows/aria2c.exe（Desktop 项目负责拷贝到输出目录）。</summary>
@@ -61,7 +61,7 @@ public sealed class Aria2Engine : IDisposable
             catch
             {
                 // 每次失败都必须清掉 _proc：留着会让 Start 的 _proc != null 短路永久跳过重拉，
-                // 兜底启动也只会撞「先 Start()」异常，应用重启前下载彻底不可用（深审 CL-01）
+                // 兜底启动也只会撞「先 Start()」异常，应用重启前下载彻底不可用
                 _proc.Dispose();
                 _proc = null;
                 if (attempt >= 3) throw;
@@ -102,7 +102,7 @@ public sealed class Aria2Engine : IDisposable
         {
             if (e.Data == null) return;
             Debug.WriteLine("[aria2] " + e.Data);
-            lock (_stderrTail)   // 留尾部 2KB 供启动失败诊断（深审 F-C05）
+            lock (_stderrTail)   // 留尾部 2KB 供启动失败诊断
             {
                 _stderrTail.AppendLine(e.Data);
                 if (_stderrTail.Length > 2048) _stderrTail.Remove(0, _stderrTail.Length - 2048);
@@ -115,7 +115,7 @@ public sealed class Aria2Engine : IDisposable
 
     private void WaitRpcReady()
     {
-        _http?.Dispose();   // 重试路径不再泄漏旧实例（深审 F-C06）
+        _http?.Dispose();   // 重试路径不再泄漏旧实例
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         var deadline = DateTime.Now.AddSeconds(10);
         for (;;)
@@ -173,7 +173,7 @@ public sealed class Aria2Engine : IDisposable
         try { _http?.Dispose(); } catch { }
         if (_proc is { HasExited: false })
         {
-            // 等一拍再收：--auto-save-interval=1 已把进度即时落 .aria2，强杀不再丢最多 60s 进度（深审 F-C17）
+            // 等一拍再收：--auto-save-interval=1 已把进度即时落 .aria2，强杀不再丢最多 60s 进度
             try { _proc.Kill(); _proc.WaitForExit(3000); } catch { }
         }
         _proc?.Dispose();

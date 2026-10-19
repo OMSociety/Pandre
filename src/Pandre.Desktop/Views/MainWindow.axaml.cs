@@ -125,7 +125,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            // 剪贴板被占用等瞬时故障不崩进程（async void 未捕获异常直接炸，深审 CL-02）
+            // 剪贴板被占用等瞬时故障不崩进程（async void 未捕获异常直接炸）
             vm.StatusMessage = "复制失败：" + ex.Message;
         }
     }
@@ -146,7 +146,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            // 同上：async void 必须自接异常（深审 CL-02）
+            // 同上：async void 必须自接异常
             System.Diagnostics.Debug.WriteLine("[ui] 复制分享链接失败: " + ex.Message);
         }
     }

@@ -146,7 +146,7 @@ public partial class DownloadsViewModel : ViewModelBase
     /// <summary>从 DownloadManager 的快照重建行（线程→UI）。</summary>
     public void Refresh()
     {
-        // 「保存到」实时跟设置页走：入队实际读 AppServices.DownloadDir，标签冻结启动值会误导（深审 B-02）
+        // 「保存到」实时跟设置页走：入队实际读 AppServices.DownloadDir，标签冻结启动值会误导
         DownloadDir = AppServices.DownloadDir;
         var tasks = AppServices.Downloads.Tasks;
         // 简单整体重建（P1 规模足够）

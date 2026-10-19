@@ -63,7 +63,7 @@ public sealed class QuarkQrLogin : IQrLoginFlow
             }
             catch (Exception ex) when (ex is HttpRequestException or System.Net.Sockets.SocketException)
             {
-                // 第 6 次起不再裸透传：按网络故障收尾（深审 PC-10），与百度侧口径一致
+                // 第 6 次起不再裸透传：按网络故障收尾，与百度侧口径一致
                 throw new PanException($"夸克扫码轮询连续网络失败，已按网络故障收尾（{ex.Message}）");
             }
             catch (TaskCanceledException) when (!ct.IsCancellationRequested)

@@ -656,7 +656,7 @@ public sealed class BaiduPanClient : IPanClient
             fsIds.AddRange(pageIds);
             skippedInvalid += pageInvalid;
             // 满页判定必须按服务端返回的原始条目数，不能按有效 fs_id 数：页内混入坏条目时
-            // 按有效数判会误判成「最后一页」提前终止，后续页静默丢失且全程无报错（深审 PC-01）
+            // 按有效数判会误判成「最后一页」提前终止，后续页静默丢失且全程无报错
             if (list.GetArrayLength() < 100) break;
         }
         if (fsIds.Count == 0) throw new PanException("分享里没有可转存的文件");

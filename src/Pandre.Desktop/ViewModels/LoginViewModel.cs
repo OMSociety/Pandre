@@ -93,7 +93,7 @@ public partial class LoginCardViewModel : ViewModelBase
             });
 
             var cred = await _flow.WaitAsync(progress, _waitCts.Token);
-            // 凭据已到手：落盘与取账号不再受取消影响——半途取消会「凭据已存却报已取消」（深审 B-04）
+            // 凭据已到手：落盘与取账号不再受取消影响——半途取消会「凭据已存却报已取消」
             await AppServices.SaveCredentialAsync(cred);
 
             var client = _provider == PanProvider.Baidu
@@ -129,7 +129,7 @@ public partial class LoginCardViewModel : ViewModelBase
             IsBusy = false;
             _flow?.Dispose();
             _flow = null;
-            _waitCts?.Dispose();   // 每轮扫码的取消源用完即弃，防句柄泄漏（深审 B-04）；Cancel() 对 null 安全
+            _waitCts?.Dispose();   // 每轮扫码的取消源用完即弃，防句柄泄漏；Cancel() 对 null 安全
             _waitCts = null;
         }
     }
@@ -156,7 +156,7 @@ public partial class LoginCardViewModel : ViewModelBase
             StatusText = $"退出登录失败：{ex.Message}";
             return;
         }
-        // 内存会话态一并解除（深审 EC-01）：否则 IsAuthenticated 恒真，网盘页继续用旧会话，与「未登录」UI 自相矛盾
+        // 内存会话态一并解除：否则 IsAuthenticated 恒真，网盘页继续用旧会话，与「未登录」UI 自相矛盾
         CurrentClient.Detach();
         IsLoggedIn = false;
         AccountName = "";
@@ -185,7 +185,7 @@ public partial class LoginCardViewModel : ViewModelBase
         {
             // 会话在服务端已失效，先解除内存态让启动流程继续；盘上凭据删不掉（占用/权限）时不阻断启动，
             // 卡片状态条给出可见提示，残留文件由下次登录写入或下次过期清理兜底
-            client.Detach();   // 会话过期：内存态一并解除（深审 EC-01），否则网盘页继续用旧会话
+            client.Detach();   // 会话过期：内存态一并解除，否则网盘页继续用旧会话
             IsLoggedIn = false;
             StatusText = "登录已过期，请重新扫码";
             try

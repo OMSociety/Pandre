@@ -63,7 +63,7 @@ public sealed partial class BaiduQrLogin : IQrLoginFlow
             catch (HttpRequestException) when (++netFailStreak <= 5) { continue; }   // 长轮询本身会超时断连，重试即可
             catch (HttpRequestException ex)
             {
-                // 第 6 次起不再裸透传：按网络故障收尾（深审 PC-10），原因并入消息
+                // 第 6 次起不再裸透传：按网络故障收尾，原因并入消息
                 throw new PanException($"百度扫码轮询连续网络失败，已按网络故障收尾（{ex.Message}）");
             }
             catch (TaskCanceledException) when (!ct.IsCancellationRequested) { continue; }

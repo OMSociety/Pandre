@@ -317,7 +317,7 @@ public sealed class QuarkPanClient : IPanClient
 
     /// <summary>
     /// 异步任务型操作的收尾：finish=true 同步完成；有 task_id 进轮询；
-    /// 两者皆无（响应缺 data / 空对象）视为状态不明抛错，不静默当成功（深审 PC-11）。
+    /// 两者皆无（响应缺 data / 空对象）视为状态不明抛错，不静默当成功。
     /// </summary>
     private async Task FinishTaskOrThrowAsync(JsonElement data, string op, CancellationToken ct)
     {

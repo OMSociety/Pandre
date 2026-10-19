@@ -56,7 +56,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _aria2Connections = "16";
     [ObservableProperty] private string _aria2MaxConcurrent = "5";
 
-    /// <summary>两条数字输入各自独立的校验提示（此前共享一条互相抹除，深审 B-10）。</summary>
+    /// <summary>两条数字输入各自独立的校验提示（此前共享一条互相抹除）。</summary>
     [ObservableProperty] private string? _aria2ConnectionsHint;
     [ObservableProperty] private string? _aria2MaxConcurrentHint;
 

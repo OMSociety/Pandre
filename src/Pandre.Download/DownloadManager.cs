@@ -69,7 +69,7 @@ public sealed class DownloadManager : IDisposable
         if (IsUnsafeFileName(link.File.Name))
             throw new InvalidOperationException($"拒绝下载：文件名包含路径分隔符、盘符或相对路径段:{link.File.Name}");
         // 兜底：先用后启都自愈（沿用上次请求的配置，不经此路径绕过设置页）。
-        // Start 同步等 RPC 就绪（最长 10s），不能占着 UI 线程，丢线程池（深审 F-C12）
+        // Start 同步等 RPC 就绪（最长 10s），不能占着 UI 线程，丢线程池
         if (_pollCts == null)
             await Task.Run(() => Start(_lastExePath, _lastConnections, _lastMaxConcurrent)).ConfigureAwait(false);
         Directory.CreateDirectory(saveDir);
@@ -168,7 +168,7 @@ public sealed class DownloadManager : IDisposable
         if (t.Gid != null)
         {
             // 先问 aria2 要权威状态：完成刚落 aria2 但 UI 轮询未刷时，内存态仍显示「下载中」，
-            // 按内存态判会误把成品当过程文件删掉（深审 F-C09）
+            // 按内存态判会误把成品当过程文件删掉
             try
             {
                 var st = await _engine.CallAsync("aria2.tellStatus", t.Gid).ConfigureAwait(false);
@@ -285,7 +285,7 @@ public sealed class DownloadManager : IDisposable
                         if (t.Gid == null || !byGid.TryGetValue(t.Gid, out var st))
                         {
                             // gid 不在 aria2 三张表里且任务仍处活跃态：引擎重启过或结果被清理，
-                            // 置 Error 防任务行冻结在「下载中」（深审 F-C08/EC-03）；终态行不动
+                            // 置 Error 防任务行冻结在「下载中」；终态行不动
                             if (t.Gid != null && t.Status is DownloadStatus.Queued or DownloadStatus.Downloading or DownloadStatus.Paused)
                             {
                                 t.Status = DownloadStatus.Error;
@@ -309,7 +309,7 @@ public sealed class DownloadManager : IDisposable
             {
                 // 轮询失败（aria2 暂时不可用）下个周期再试；留调试痕迹不静默
                 Debug.WriteLine("[DownloadManager] 轮询失败: " + ex.Message);
-                // 引擎进程死了（CallAsync 连不上即知）：自动拉起，不再整轮空转（深审 EC-03）。
+                // 引擎进程死了（CallAsync 连不上即知）：自动拉起，不再整轮空转。
                 // 队列是 aria2 内存态，重启后旧 gid 全失效，上面的 gid 失配逻辑会把活跃行转 Error
                 // 令牌已取消就不再拉起：正常退出会先停轮询再收引擎，收尾之后复活的 aria2c 无人收尸
                 if (!ct.IsCancellationRequested && !_engine.IsAlive)
@@ -360,7 +360,7 @@ public sealed class DownloadManager : IDisposable
         if (t.Status == DownloadStatus.Error)
         {
             // errorMessage 缺失时降级取 errorCode；两者皆缺给兜底文案，不让 KeyNotFound 被
-            // 外层逐任务 catch 吞掉后错误信息留空（深审 F-C14）
+            // 外层逐任务 catch 吞掉后错误信息留空
             if (st.TryGetProperty("errorMessage", out var em) && em.GetString() is { Length: > 0 } msg)
                 t.ErrorMessage = msg;
             else if (st.TryGetProperty("errorCode", out var ec))

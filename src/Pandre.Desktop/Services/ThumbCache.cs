@@ -10,7 +10,7 @@ using Pandre.Core;
 
 namespace Pandre.Desktop.Services;
 
-/// <summary>缩略图内存缓存：URL → Bitmap。失败进 60 秒负缓存防重试风暴（深审 B-07：不再固化会话期永久缺失）。</summary>
+/// <summary>缩略图内存缓存：URL → Bitmap。失败进 60 秒负缓存防重试风暴（不再固化会话期永久缺失）。</summary>
 public static class ThumbCache
 {
     private static readonly ConcurrentDictionary<string, Bitmap?> Cache = new();
@@ -47,7 +47,7 @@ public static class ThumbCache
             }
             catch
             {
-                // 瞬时失败只负缓存 60 秒，不再固化为会话期永久缺失（深审 B-07）
+                // 瞬时失败只负缓存 60 秒，不再固化为会话期永久缺失
                 NegativeUntil[u] = DateTime.UtcNow.AddSeconds(60);
                 return null;
             }
