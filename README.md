@@ -63,7 +63,25 @@
 
 ## 快速开始
 
-当前版本从源码构建运行。以下命令在仓库根目录执行。
+### 直接使用（推荐）
+
+到 [Releases](https://github.com/OMSociety/Pandre/releases) 下载，二选一：
+
+| 包 | 适用 |
+|---|---|
+| `Pandre-<版本>-setup-win-x64.exe` | 安装包。装到 `%LOCALAPPDATA%\Programs\Pandre`，建开始菜单快捷方式，可从「应用和功能」卸载；不请求管理员权限 |
+| `Pandre-<版本>-portable-win-x64.zip` | 便携版。解压到任意目录，直接运行 `Pandre.Desktop.exe` |
+
+两者都是 win-x64 自包含发布，不需要预装 .NET 运行时。系统要求 Windows 10 及以上 64 位。
+
+**注意事项：**
+
+- 便携版解压后 `Pandre.Desktop.exe` 旁边必须保留 `assets\windows\` 目录（内含下载引擎 aria2 与它的 GPL-2.0 许可证文本），不要只拷走 exe。
+- 安装包与便携版都不写注册表、不装服务、不设开机自启；账号凭据与设置存在 `%APPDATA%\Pandre`，卸载时不删除，需要清干净请手动删该目录。
+
+### 从源码运行
+
+以下命令在仓库根目录执行。
 
 **1. 准备环境**
 
