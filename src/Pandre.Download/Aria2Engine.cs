@@ -10,6 +10,9 @@ namespace Pandre.Download;
 /// aria2c 子进程守护：随机端口 + 随机 rpc-secret 启动 JSON-RPC。
 /// 进程只在应用正常退出路径收尾（Dispose）；引擎崩溃后由 DownloadManager 轮询感知并自动重启，
 /// 进程并非只在应用退出时结束。
+/// 鉴权边界：rpc-secret 以命令行参数 <c>--rpc-secret=…</c> 传给子进程，同机同用户的其它进程可读到该命令行。
+/// 缓解为三重叠加——每次启动重新生成 secret、<c>--rpc-listen-all=false</c> 只监听回环、端口随机；
+/// aria2 没有从文件读 secret 的通道，此可见性在本进程模型内无法消除。
 /// aria2 是 GPL-2.0 独立子进程（聚合分发，不传染本项目许可证），发布包须附带 assets/windows/aria2-COPYING.txt。
 /// </summary>
 public sealed class Aria2Engine : IDisposable

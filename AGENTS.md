@@ -67,7 +67,7 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 - 改启动流程（`App.axaml.cs` 的 `InitSafelyAsync`、`MainViewModel.InitAsync`、`AppServices.StartDownloads`）：改完必须真跑一次应用并实测一次真实下载入队。原因：登录页重构曾让下载引擎的启动调用变成死代码，下载从未可用而界面看起来完全正常。
 - 改强调色资源（`App.axaml` 的 `AccentColor` / `AccentBrush` / `NavSelectedBrush` / `OnAccentBrush`）：这四键运行期由 `src/Pandre.Desktop/Services/AccentService.cs` 按 Windows 系统强调色覆盖，必须写在两层 `ThemeDictionaries` 里——写到顶层会遮蔽主题字典键，深浅两套色就丢了。压在强调色实底上的前景用 `OnAccentBrush`，不写死黑白。
 - 升级 Avalonia：先核对 `App.axaml` 覆盖的 Fluent 内部资源键（ComboBox / Button / Card 系列）。键名绑定 12.1.4，漂移会静默失效、不报错。
-- 改图标：`assets/icons/pandre-app.svg`（256 格标记）、`assets/icons/pandre-app-icon.svg`（48 格成品源）、`assets/icons/*.flat.svg`（填充展开稿，与 `Icons.Brand.cs` 常量逐字符相同）、`Assets/pandre.ico`（由成品源重渲 7 帧）是同一套图形的前后段，改一处必须同步其余；csproj 的 `ApplicationIcon` 与 MainWindow 的 `Icon` 两处都要设。
+- 改图标：`assets/icons/pandre-app.svg`（256 格标记）、`assets/icons/pandre-app-hollow.svg`（同一标记的镂空版，设置页「关于」卡用）、`assets/icons/pandre-app-icon.svg`（48 格成品源，`.ico` 的 48 帧及以上由其渲出）、`assets/icons/pandre-app-icon-small.svg`（48 格满幅版，`.ico` 的 16/24/32 帧由其渲出，任务栏与托盘按这几帧渲染）、`assets/icons/*.flat.svg`（四份设计稿的填充展开稿，与 `Icons.Brand.cs` 常量逐字符相同）、`Assets/pandre.ico`（由两份成品源重渲 7 帧）是同一套图形的前后段，改一处必须同步其余；csproj 的 `ApplicationIcon` 与 MainWindow 的 `Icon` 两处都要设。
 
 ## 禁止操作
 
@@ -87,7 +87,7 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 
 1. 在仓库内做一次**全量**构建 `dotnet build src/Pandre.Desktop/Pandre.Desktop.csproj -c Release`，0 错误 0 警告；增量构建的结果不作数（见「出错怎么办」）。
 2. 真跑一次应用，走通受影响的流程：登录 / 列目录 / 搜索 / 下载 / 文件管理（移动·复制·重命名·删除）/ 转存 / 分享 / 上传，按改动面至少走通对应的一条。
-3. 凡触及下载链路、启动流程：必须实测一次真实入队，只看界面不算；动夸克取链时用一个 ≥100MB 的文件，UA 门只在 ≥100MB 触发。
+3. 凡触及下载链路、启动流程：必须实测一次真实入队，只看界面不算；动夸克取链时用一个 ≥100MB 的文件，UA 门只在 ≥100MB 触发（100MB 整这一边界值未实测，见 docs §4）。
 4. UI 改动：深色、浅色两主题各截图核对一次。运行期两个验收开关：`PANDRE_AUTOCHECK=3` 启动后直跳某页（0 百度 / 1 夸克 / 2 下载 / 3 设置），`PANDRE_LOGINPANEL=1` 强制弹开扫码弹窗。
 5. 需要真实账号或手工操作的步骤（扫码登录、真实入队）必须由用户配合完成，不能只凭构建与界面就报通过。
 
@@ -95,7 +95,7 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 
 ## 提交与协作
 
-- Commit：单行中文摘要，格式 `模块：改动`；模块用 `Core（百度）` / `Core（夸克）` / `Download` / `Desktop` / `docs` / `工程`，与 git log 既有惯例一致。一次提交只写一个主模块，跨模块改动归入主责模块或拆成多次提交。
+- Commit：单行中文摘要，格式 `模块：改动`；模块用 `Core（百度）` / `Core（夸克）` / `Download` / `Desktop` / `docs` / `工程`。一次提交只写一个主模块，跨模块改动归入主责模块或拆成多次提交。历史提交里另有 `fix:` / `修复：` / `扩展：` / `浏览器接管：` / `P1 MVP:` 等旧形态前缀，这些不再沿用。
 - 行尾由 `.gitattributes` 强制：`*` text=auto 兜底；显式规则 `.cs` / `.axaml` / `.md` / `.json` / `.yml` / `.gitattributes` 用 LF，`.csproj` / `.slnx` 用 CRLF，`ico` / `png` / `jpg` / `exe` / `dll` 标记 binary。不要为了迁就编辑器去改这份文件。
 
 ## 已知风险区
