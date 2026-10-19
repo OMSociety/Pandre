@@ -72,7 +72,7 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 
 ## 禁止操作
 
-- 禁止在仓库外的工作目录跑 `dotnet` 命令。原因：`global.json` 是 dotnet 从当前目录逐级向上查找的，站在仓库外（如 `D:\WorkSpace`）找不到它，实测会改用本机的 11.0.100-preview SDK 并报 NETSDK1057，产物与验收环境不一致。
+- 禁止在仓库外的工作目录跑 `dotnet` 命令。原因：`global.json` 是 dotnet 从当前目录逐级向上查找的，站在仓库外（比如仓库的上级目录）找不到它，实测会改用本机默认的更高版本 SDK 并报 NETSDK1057，产物与验收环境不一致。
 - 禁止在 UI 线程同步等待异步调用（`.Result` / `.GetAwaiter().GetResult()`）。原因：`Aria2Engine.CallAsync` 未加 `ConfigureAwait(false)` 时被 UI 线程 `GetResult()` 死锁，进程活着但主窗口永不显示。可被同步等待的库方法，内部 `await` 一律 `ConfigureAwait(false)`；确需 fire-and-forget 时用 `Task.Run` 起独立上下文并自己接异常。
 - 禁止把 Transform 对象当 Avalonia 动画目标。原因：TransformAnimator 要求目标是 Visual，否则抛 `InvalidCastException` 闪退。写法见 `MainWindow.axaml.cs` 的 `UpdateNavIndicator`（Transitions 挂在 Border 上）。
 - 禁止用 `SystemDecorations="None"` 实现无边框。原因：会丢系统缩放与圆角；既定方案是 `WindowDecorations="BorderOnly"` + 自绘标题栏。
