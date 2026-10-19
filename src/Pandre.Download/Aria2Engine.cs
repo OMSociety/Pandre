@@ -154,10 +154,13 @@ public sealed class Aria2Engine : IDisposable
         };
         var resp = await _http.PostAsync(_rpcUrl,
             new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")).ConfigureAwait(false);
-        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false)).RootElement;
+        // JsonDocument 用完即须释放；RootElement 是文档内存的视图，返回前克隆成独立副本，
+        // 调用方（轮询的按 gid 状态缓存等）长期持有时才不会踩到已释放的文档
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+        var root = doc.RootElement;
         if (root.TryGetProperty("error", out var err))
             throw new InvalidOperationException($"aria2 {method} 失败: {err.GetProperty("message").GetString()}");
-        return root.GetProperty("result");
+        return root.GetProperty("result").Clone();
     }
 
     public void Dispose()

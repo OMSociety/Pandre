@@ -106,8 +106,12 @@ public partial class SettingsViewModel : ViewModelBase
         {
             // aria2 的 max-connection-per-server 硬上限 16，超限 aria2c 直接拒绝启动（exit 28），故此处同步钳制
             Aria2ConnectionsHint = n is > 0 and <= 16 ? null : "连接数需在 1-16 之间";
-            if (n != AppServices.Aria2Connections && n is > 0 and <= 16)
+            if (n is > 0 and <= 16 && n != AppServices.Aria2Connections)
+            {
+                // 引擎只在应用启动时按当时配置拉起，运行期改动只落设置、不热生效，不提示会被当成已生效
                 AppServices.Aria2Connections = n;
+                Aria2ConnectionsHint = "重启应用后生效";
+            }
         }
         else Aria2ConnectionsHint = "连接数需为整数（当前改动未保存）";
     }
