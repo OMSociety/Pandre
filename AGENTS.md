@@ -1,15 +1,14 @@
 # AGENTS.md — Pandre（盘多录）Agent 宪法
 
 适用范围：本仓库全部目录；子目录另有 AGENTS.md 时，以更接近改动点的那份为准。
-最后更新：2026-10-20
 
 ## 项目概览
 
-- 一句话定位：盘多录 Pandre —— 百度网盘 + 夸克网盘双盘聚合的 Windows 桌面客户端，纯 C# 直连官方 Cookie 接口：无浏览器内核、无第三方服务器、不破解限速、绿色免安装，许可证 GPL-3.0。
+- 一句话定位：盘多录 Pandre —— 百度网盘与夸克网盘的双盘聚合 Windows 桌面客户端，纯 C# 直连官方 Cookie 接口，无浏览器内核、无第三方服务器，绿色免安装，许可证 GPL-3.0。
 - 技术栈：.NET 10（三项目均 `net10.0`，`Nullable=enable`）/ Avalonia 12.1.4 + Fluent 主题 / CommunityToolkit.Mvvm 8.4.2 / QRCoder 1.8.0 / Core 侧 `System.Security.Cryptography.ProtectedData` 10.0.12。下载引擎是随包携带的 `assets/windows/aria2c.exe`（GPL-2.0 独立子进程，许可证文本同目录）。
 - 无单元测试工程、无 CI 配置：验收靠「构建 0 错误 + 真实链路实测」，口径见「验收标准」。
 - 文档索引：
-  - 协议与实现规格：[docs/开发文档.md](./docs/开发文档.md)——两盘接口逆向细节、扫码链路、下载链路、架构决策（§2）、工程约定（§5）、阶段计划 P0–P3（§6）、UI 实况与陷阱（§7）、许可证裁决（§8）。**改协议或改 UI 前必读。**
+  - 协议与实现规格：[docs/开发文档.md](./docs/开发文档.md)——两盘接口逆向细节、扫码链路、下载链路、架构决策（§2）、工程约定（§5）、UI 实况与陷阱（§6）、许可证裁决（§7）。**改协议或改 UI 前必读。**
 
 ## 常用命令
 
@@ -61,12 +60,12 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 
 ## 修改契约
 
-- 改或新增网盘 API（`src/Pandre.Core/Baidu/`、`src/Pandre.Core/Quark/`）：先读 [docs/开发文档.md](./docs/开发文档.md) §3/§4/§4b/§4c。端点与参数都是抓包/实测钉死的，**不得按常识增删改，新增端点同样要拿实测证据**；改完把新结论写回同一份文档。阶段划分（P0–P3）见该文档 §6。
-- 在 `IPanClient` 加方法：给默认实现抛 `NotSupportedException`，由各盘按能力覆盖，否则会一次性打断另一盘（P2 起的方法全按这个口径加）。
-- 改 UI 样式：只改 `src/Pandre.Desktop/App.axaml` 的 `ThemeDictionaries` 资源与控件样式；`Views/` 内颜色一律 `{DynamicResource ...}`（主题无关的 `Transparent` 例外：窗口底、拖动区等透明占位），不写字面色值（规范见 docs §7）。
+- 改或新增网盘 API（`src/Pandre.Core/Baidu/`、`src/Pandre.Core/Quark/`）：先读 [docs/开发文档.md](./docs/开发文档.md) §3/§4/§4b/§4c。端点与参数都是抓包/实测钉死的，**不得按常识增删改，新增端点同样要拿实测证据**；改完把新结论写回同一份文档。
+- 在 `IPanClient` 加方法：给默认实现抛 `NotSupportedException`，由各盘按能力覆盖，否则会一次性打断另一盘。
+- 改 UI 样式：只改 `src/Pandre.Desktop/App.axaml` 的 `ThemeDictionaries` 资源与控件样式；`Views/` 内颜色一律 `{DynamicResource ...}`（主题无关的 `Transparent` 例外：窗口底、拖动区等透明占位），不写字面色值（规范见 docs §6）。
 - 改凭据存储（`src/Pandre.Core/Credentials.cs`）：Windows 必须保持 DPAPI（当前用户域）加密落盘；日志与异常消息不得输出 Cookie 值。
-- 改下载链路（`src/Pandre.Download/`）：`await` 一律带 `ConfigureAwait(false)`；`EnqueueAsync` 的逐任务选项必须与引擎级同源（`_connections`），写死数值会让设置页的连接数对实际下载失效（历史上就写死过 16）。
-- 改启动流程（`App.axaml.cs` 的 `InitSafelyAsync`、`MainViewModel.InitAsync`、`AppServices.StartDownloads`）：改完必须真跑一次应用并实测一次真实下载入队。原因：登录页重构曾让下载引擎的启动调用变成死代码，下载从未可用而界面看起来完全正常。
+- 改下载链路（`src/Pandre.Download/`）：`await` 一律带 `ConfigureAwait(false)`；`EnqueueAsync` 的逐任务选项必须与引擎级同源（`_connections`），写死数值会被逐任务选项覆盖引擎全局值，设置页的连接数就对实际下载失效。
+- 改启动流程（`App.axaml.cs` 的 `InitSafelyAsync`、`MainViewModel.InitAsync`、`AppServices.StartDownloads`）：改完必须真跑一次应用并实测一次真实下载入队。原因：这条链上任何一处被重构掉，下载引擎就不会启动，而界面看起来完全正常、没有任何报错。
 - 改强调色资源（`App.axaml` 的 `AccentColor` / `AccentBrush` / `NavSelectedBrush` / `OnAccentBrush`）：这四键运行期由 `src/Pandre.Desktop/Services/AccentService.cs` 按 Windows 系统强调色覆盖，必须写在两层 `ThemeDictionaries` 里——写到顶层会遮蔽主题字典键，深浅两套色就丢了。压在强调色实底上的前景用 `OnAccentBrush`，不写死黑白。
 - 升级 Avalonia：先核对 `App.axaml` 覆盖的 Fluent 内部资源键（ComboBox / Button / Card 系列）。键名绑定 12.1.4，漂移会静默失效、不报错。
 - 改图标：`assets/icons/pandre-app.svg`（256 格标记）、`assets/icons/pandre-app-hollow.svg`（同一标记的镂空版，设置页「关于」卡用）、`assets/icons/pandre-app-icon.svg`（48 格成品源，`.ico` 的 48 帧及以上由其渲出）、`assets/icons/pandre-app-icon-small.svg`（48 格满幅版，`.ico` 的 16/24/32 帧由其渲出，任务栏与托盘按这几帧渲染）、`assets/icons/*.flat.svg`（四份设计稿的填充展开稿，与 `Icons.Brand.cs` 常量逐字符相同）、`Assets/pandre.ico`（由两份成品源重渲 7 帧）是同一套图形的前后段，改一处必须同步其余；csproj 的 `ApplicationIcon` 与 MainWindow 的 `Icon` 两处都要设。
@@ -80,8 +79,8 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 - 禁止提交真实 Cookie 或令牌、禁止在日志与界面输出 Cookie 值。原因：Cookie 即账号等价物，进仓库或日志等于公开账号。凭据只在 `%APPDATA%/Pandre/credentials/`，不进仓库。
 - 禁止把账号凭据写进 `%APPDATA%\Pandre\upload-resume.json`（`UploadResumeEntry` 的任何字段都不行，含 `AuthInfo`）：这份文件是明文 JSON，与 `credentials/` 的 DPAPI 加密域不同，只允许承载服务端上传会话标识与分片进度。原因：一旦写入 Cookie / token / bduss / BDUSS / `__puus` 一类值，凭据就脱离加密域落到明文盘上，等于把账号交给任何能读 `%APPDATA%` 的进程。
 - 禁止写注册表、加右键菜单、进「此电脑」、开机自启，禁止引入任何统计或上报 SDK。原因：绿色免安装与零遥测是设计规范（docs §5），不是可选项。
-- 禁止复制 AGPL 项目（OpenList / AList）的代码。原因：会传染本项目许可证；许可裁决表见 docs §8。参考参数设计可以，复制别家代码前先核许可证。
-- 禁止删掉 README 的「致谢」与「License」两节。原因：MIT / Apache-2.0 项目允许参考但要求署名与许可声明，删掉即违反许可义务；裁决表见 docs §8。
+- 禁止复制 AGPL 项目（OpenList / AList）的代码。原因：会传染本项目许可证；许可裁决表见 docs §7。参考参数设计可以，复制别家代码前先核许可证。
+- 禁止删掉 README 的「致谢」与「License」两节。原因：MIT / Apache-2.0 项目允许参考但要求署名与许可声明，删掉即违反许可义务；裁决表见 docs §7。
 - 禁止给行卡片（`Border.row-card`，样式定义在 `src/Pandre.Desktop/App.axaml`，被 `PanView` / `DownloadsView` / `MainWindow` 的行列表复用）的悬停加位移或阴影。原因：用户验收结论——浮起会被列表裁切，只保留背景变色。
 
 ## 验收标准
@@ -113,7 +112,7 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 | src/Pandre.Core/Baidu/BaiduQrLogin.cs | `qrbdusslogin` 响应是伪 JSON，bduss 与 stoken 只能用正则从 `session` 字段抽；`Set-Cookie` 里的 BDUSS 对 pan 接口无效 | 读 docs §3 再改 |
 | src/Pandre.Core/PanHttp.cs | 百度若干端点把 Content-Type 写成 `charset=utf8`（无连字符），.NET 不认这个别名；归一在 `CharsetFixHandler` 里 | 新增任何 HttpClient 前先确认走了 `PanHttp.CreateClient` |
 | src/Pandre.Desktop/App.axaml | 控件观感靠覆盖 Avalonia Fluent 内部资源键实现，键名绑定 12.1.4 | 升级 Avalonia 前先对键名 |
-| src/Pandre.Desktop/Services/AppServices.cs | `StartDownloads`（历史名 `InitAsync`）曾因启动链断裂漏被调用，下载引擎从未启动而界面无报错 | 改启动流程后真跑应用并实测入队 |
+| src/Pandre.Desktop/Services/AppServices.cs | `StartDownloads` 是下载引擎的唯一起点，启动链断了它就不会被调用，界面无任何报错 | 改启动流程后真跑应用并实测入队 |
 
 ## 出错怎么办
 
