@@ -98,12 +98,24 @@ public partial class LoginCardViewModel : ViewModelBase
 
             var client = _provider == PanProvider.Baidu
                 ? (IPanClient)AppServices.Baidu : AppServices.Quark;
-            var info = await client.GetAccountAsync(CancellationToken.None);
+            // 凭据已落盘且客户端已 Attach，登录即成立：账号信息只是补充展示，取失败不回滚登录态，
+            // 否则登录卡停在「扫码登录」而网盘页按 IsAuthenticated 已可用，状态分裂至重启
             IsLoggedIn = true;
-            AccountName = info.Nickname ?? cred.Nickname ?? "已登录";
-            AccountText = $"{AccountName} · {Fmt.Size(info.UsedBytes)} / {Fmt.Size(info.TotalBytes)}";
+            AccountName = cred.Nickname ?? "已登录";
             StatusText = "已登录";
             QrImage = null;
+            try
+            {
+                var info = await client.GetAccountAsync(CancellationToken.None);
+                AccountName = info.Nickname ?? AccountName;
+                AccountText = $"{AccountName} · {Fmt.Size(info.UsedBytes)} / {Fmt.Size(info.TotalBytes)}";
+            }
+            catch (Exception ex)
+            {
+                // 网络/接口失败非阻断：状态条提示未验证，进网盘页后重新拉取（与 RefreshAccountAsync 失败分支同口径）
+                StatusText = "已登录（状态未验证）";
+                System.Diagnostics.Debug.WriteLine(ex);
+            }
 
             // 通知外层刷新导航可用性
             RaiseSessionChanged();
@@ -134,7 +146,7 @@ public partial class LoginCardViewModel : ViewModelBase
     private async Task LogoutAsync()
     {
         await AppServices.Credentials.ClearAsync(_provider);
-        // 内存会话态一并解除（深审 EC-01）：否则 IsAuthenticated 恒真，网盘页与网页接管继续用旧会话，与「未登录」UI 自相矛盾
+        // 内存会话态一并解除（深审 EC-01）：否则 IsAuthenticated 恒真，网盘页继续用旧会话，与「未登录」UI 自相矛盾
         CurrentClient.Detach();
         IsLoggedIn = false;
         AccountName = "";
@@ -162,7 +174,7 @@ public partial class LoginCardViewModel : ViewModelBase
         catch (PanException ex) when (ex.IsAuthExpired)
         {
             await AppServices.Credentials.ClearAsync(_provider);
-            client.Detach();   // 会话过期：内存态一并解除（深审 EC-01），否则接管与网盘页继续用旧会话
+            client.Detach();   // 会话过期：内存态一并解除（深审 EC-01），否则网盘页继续用旧会话
             IsLoggedIn = false;
             StatusText = "登录已过期，请重新扫码";
         }

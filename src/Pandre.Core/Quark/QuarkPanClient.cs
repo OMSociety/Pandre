@@ -53,7 +53,8 @@ public sealed class QuarkPanClient : IPanClient
     public string? ExportCookie() =>
         _jar == null ? null : PanHttp.JarToCookieString(_jar, PanHttp.QuarkCookieHosts);
 
-    private HttpClient Http => _http ?? throw new InvalidOperationException("未登录：先 Attach");
+    // 未 Attach 或已 Detach 时统一抛业务口径的 PanException「未登录」：调用方拿到的是可呈现的业务异常，而非打到已释放/缺失实例的运行时异常
+    private HttpClient Http => _http ?? throw new PanException("未登录：先 Attach");
 
     private static void ThrowIfNotOk(JsonElement root, string op)
     {
@@ -169,7 +170,9 @@ public sealed class QuarkPanClient : IPanClient
     /// <summary>确保 Cookie 里有 __puus：没有就调 flush 让服务端补发（Set-Cookie 自动进 jar）。</summary>
     private async Task EnsurePuusAsync(CancellationToken ct)
     {
-        if (ExportCookie()!.Contains("__puus=")) return;
+        // 未 Attach 时 Cookie 为空：显式报「未登录」，不让 null 断言把真实原因砸成 NRE
+        if (ExportCookie() is not { } cookie) throw new PanException("未登录");
+        if (cookie.Contains("__puus=")) return;
         await Http.GetStringAsync($"{DriveBase}/auth/pc/flush?{Q}", ct).ConfigureAwait(false);
         if (!ExportCookie()!.Contains("__puus="))
             throw new PanException("flush 未补发 __puus，下载将不可用");
@@ -707,5 +710,9 @@ public sealed class QuarkPanClient : IPanClient
             Provider: PanProvider.Quark);
     }
 
-    public void Dispose() => _http?.Dispose();
+    public void Dispose()
+    {
+        _http?.Dispose();
+        _http = null;   // 置 null 让 IsAuthenticated 归 false，后续调用走 Http 守卫报「未登录」，而不是打到已释放实例抛 ObjectDisposedException
+    }
 }

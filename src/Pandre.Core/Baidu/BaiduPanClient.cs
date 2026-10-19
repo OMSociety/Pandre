@@ -30,6 +30,7 @@ public sealed class BaiduPanClient : IPanClient
         Dispose();
         _jar = null;
         _nickname = null;
+        _bdstoken = null;   // 会话级缓存：登出即弃，换账号不得复用旧会话的 bdstoken
     }
 
     public void Attach(PanCredential credential)
@@ -37,6 +38,7 @@ public sealed class BaiduPanClient : IPanClient
         if (credential.Provider != PanProvider.Baidu)
             throw new ArgumentException("凭据提供方不匹配", nameof(credential));
         Dispose(); // 重复 Attach 先释放旧客户端，避免泄漏
+        _bdstoken = null;   // 换账号不得复用上一会话的 bdstoken
         _jar = PanHttp.SeedCookies(credential.Cookie, PanHttp.BaiduCookieHosts);
         _http = PanHttp.CreateClient(_jar, PanHttp.BrowserUa);
         _http.DefaultRequestHeaders.Referrer = new Uri("https://pan.baidu.com/disk/home");
@@ -46,7 +48,8 @@ public sealed class BaiduPanClient : IPanClient
     public string? ExportCookie() =>
         _jar == null ? null : PanHttp.JarToCookieString(_jar, PanHttp.BaiduCookieHosts);
 
-    private HttpClient Http => _http ?? throw new InvalidOperationException("未登录：先 Attach");
+    // 未 Attach 或已 Detach 时统一抛业务口径的 PanException「未登录」：调用方拿到的是可呈现的业务异常，而非打到已释放/缺失实例的运行时异常
+    private HttpClient Http => _http ?? throw new PanException("未登录：先 Attach");
 
     /// <summary>errno != 0 时抛出；-6/110 为登录态失效。响应缺 errno 字段视为异常（与夸克缺 status 抛错对齐），避免被当成功静默走到下游裸崩。</summary>
     private static void ThrowIfErrno(JsonElement root, string op)
@@ -108,7 +111,7 @@ public sealed class BaiduPanClient : IPanClient
     public async Task<IReadOnlyList<PanDownloadLink>> GetDownloadLinksAsync(
         IReadOnlyList<PanFile> files, CancellationToken ct = default)
     {
-        var cookie = ExportCookie() ?? throw new InvalidOperationException("未登录");
+        var cookie = ExportCookie() ?? throw new PanException("未登录");
         var targets = JsonSerializer.Serialize(files.Select(f => f.Path).ToArray());
         var url = $"{ApiBase}/api/filemetas?dlink=1&target={Uri.EscapeDataString(targets)}";
         var root = JsonDocument.Parse(await Http.GetStringAsync(url, ct).ConfigureAwait(false)).RootElement;
@@ -797,5 +800,9 @@ public sealed class BaiduPanClient : IPanClient
         return tasks;
     }
 
-    public void Dispose() => _http?.Dispose();
+    public void Dispose()
+    {
+        _http?.Dispose();
+        _http = null;   // 置 null 让 IsAuthenticated 归 false，后续调用走 Http 守卫报「未登录」，而不是打到已释放实例抛 ObjectDisposedException
+    }
 }
