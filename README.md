@@ -122,7 +122,7 @@ src\Pandre.Desktop\bin\Release\net10.0\Pandre.Desktop.exe
 | 配置项 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `Theme` | 字符串 | `system` | `system` 跟随系统 / `light` 浅色 / `dark` 深色 |
-| `Material` | 字符串 | `Mica` | 窗口背景材质：`Mica` / `Acrylic` / `Aero` / `None`。每个值都给一串候选，由系统取第一个支持的；`Mica` 在 Windows 10 上自动退到模糊或实底。旧值 `MicaAlt` 按 `Mica` 处理 |
+| `Material` | 字符串 | `Mica` | 窗口背景材质：`Mica` / `Acrylic` / `Aero` / `None`。每个值都给一串候选，由系统取第一个支持的；`Mica` 在 Windows 10 上自动退到模糊或实底 |
 | `CloseBehavior` | 字符串 | `tray` | 标题栏关闭按钮行为：`tray` 最小化到托盘 / `exit` 退出应用 |
 
 ### 下载
@@ -163,7 +163,7 @@ src\Pandre.Desktop\bin\Release\net10.0\Pandre.Desktop.exe
 | `src/Pandre.Download` | aria2 引擎进程管理与下载队列 | `Pandre.Core` |
 | `src/Pandre.Desktop` | Avalonia 界面、视图模型、本地设置与文件 | 上面两者 |
 
-`IPanClient` 是唯一的网盘契约：P1 级别的方法（配额、列表、搜索、取下载链）必须实现，P2 级别的（新建文件夹、重命名、移动、复制、删除、上传、转存、分享、离线下载）带默认实现抛 `NotSupportedException`，由各客户端按实际能力覆盖。两个盘目前都覆盖了上传、转存、分享与文件管理，「离线下载」只由百度实现；界面上的「离线下载」按钮按盘别单独判定，另三项则跟随设置页的全局开关增减。
+`IPanClient` 是唯一的网盘契约：必须实现的是配额、列表、搜索、取下载链；其余方法（新建文件夹、重命名、移动、复制、删除、上传、转存、分享、离线下载）带默认实现抛 `NotSupportedException`，由各客户端按实际能力覆盖。两个盘目前都覆盖了上传、转存、分享与文件管理，「离线下载」只由百度实现；界面上的「离线下载」按钮按盘别单独判定，另三项则跟随设置页的全局开关增减。
 
 技术栈：.NET 10、Avalonia 12.1.4、CommunityToolkit.Mvvm、QRCoder（扫码二维码本地生成）。
 
