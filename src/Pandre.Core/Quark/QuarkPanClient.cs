@@ -19,10 +19,15 @@ public sealed class QuarkPanClient : IPanClient
     private HttpClient? _http;
     private string? _nickname;
 
-    /// <summary>下载链有效期经验值：dlink 有时效，过期需重取。</summary>
+    /// <summary>
+    /// 下载链有效期：经验值，未做真网实测标定。链接早衰的表现是下载失败，而不是返回明确的「过期」错误；
+    /// 真网实测标定后如需调整，以实测为准。
+    /// </summary>
     private static readonly TimeSpan DownloadLinkTtl = TimeSpan.FromHours(5);
     /// <summary>异步任务轮询超时上限（移动/删除/转存/分享/复制共用）。</summary>
     private static readonly TimeSpan TaskWaitTimeout = TimeSpan.FromMinutes(10);
+    /// <summary>列表分页拉满上限（页数）：超过仍未见 _total 拉满时按服务端截断保护性报错，不静默少列。</summary>
+    private const int MaxListPages = 100;
     /// <summary>分片上传重试参数（与客户端一致：3 次尝试、间隔 500ms；每次尝试独立超时）。</summary>
     private const int PartAttempts = 3;
     private static readonly TimeSpan PartRetryDelay = TimeSpan.FromMilliseconds(500);
@@ -69,6 +74,19 @@ public sealed class QuarkPanClient : IPanClient
         }
     }
 
+    /// <summary>
+    /// 分页接口的服务端总量：data._total 优先，缺席再看 metadata._total，都无按 -1（未知）处理。
+    /// 调用方以它判定「是否已拉满」；未知总量时才退回「页未满即末页」的旧行为。
+    /// </summary>
+    private static long GetPagedTotal(JsonElement root)
+    {
+        if (root.TryGetProperty("data", out var d) && d.ValueKind == JsonValueKind.Object
+            && d.TryGetProperty("_total", out var t1) && t1.TryGetInt64(out var v1)) return v1;
+        if (root.TryGetProperty("metadata", out var md) && md.ValueKind == JsonValueKind.Object
+            && md.TryGetProperty("_total", out var t2) && t2.TryGetInt64(out var v2)) return v2;
+        return -1;
+    }
+
     /// <summary>配额与会员信息走 member 接口（quota/use 是加密的流量包扣减口，不是容量查询）。</summary>
     public async Task<PanAccountInfo> GetAccountAsync(CancellationToken ct = default)
     {
@@ -100,7 +118,12 @@ public sealed class QuarkPanClient : IPanClient
                 var name = it.GetProperty("file_name").GetString()!;
                 files.Add(MapFile(it, parentPath + "/" + name));
             }
-            if (list.GetArrayLength() < 100) break;
+            // 以 _total 拉满为准（_total 缺席才退回「页未满即末页」）：服务端单页截短（cap）时靠它续页，
+            // 翻页超上限保护性报错——宁可显式失败也不静默少列文件
+            var total = GetPagedTotal(root);
+            if (total >= 0 ? files.Count >= total : list.GetArrayLength() < 100) break;
+            if (page >= MaxListPages)
+                throw new PanException($"夸克列目录翻页超过 {MaxListPages} 页仍未拉满（已取 {files.Count}，服务端报 _total={total}），结果可能不完整，已中止");
         }
         return files;
     }
@@ -121,7 +144,11 @@ public sealed class QuarkPanClient : IPanClient
                 var name = it.GetProperty("file_name").GetString()!;
                 files.Add(MapFile(it, "/" + name));
             }
-            if (list.GetArrayLength() < 100) break;
+            // 同列目录：按 _total 拉满，翻页超上限保护性报错
+            var total = GetPagedTotal(root);
+            if (total >= 0 ? files.Count >= total : list.GetArrayLength() < 100) break;
+            if (page >= MaxListPages)
+                throw new PanException($"夸克搜索翻页超过 {MaxListPages} 页仍未拉满（已取 {files.Count}，服务端报 _total={total}），结果可能不完整，已中止");
         }
         return files;
     }
@@ -190,14 +217,33 @@ public sealed class QuarkPanClient : IPanClient
         return root.TryGetProperty("data", out var d) ? d.Clone() : default;
     }
 
-    /// <summary>轮询异步任务直到成功/失败。data.status：0待 1跑 2成 3败。超时上限 10 分钟。</summary>
+    /// <summary>
+    /// 轮询异步任务直到成功/失败。data.status：0 待 1 跑 2 成 3 败。超时上限 10 分钟。
+    /// 瞬时网络错误按分片上传同口径重试（连续 3 次失败才放弃）；status 出现未知取值显式报错，
+    /// 不当未知为「仍在跑」傻等——那只会把真实故障拖成 10 分钟超时假象。
+    /// </summary>
     private async Task<JsonElement> WaitTaskAsync(string taskId, string op, CancellationToken ct)
     {
         var deadline = DateTime.UtcNow + TaskWaitTimeout;
+        var netFails = 0;
         for (var i = 0; ; i++)
         {
-            var root = JsonDocument.Parse(await Http.GetStringAsync(
-                $"{DriveBase}/task?{Q}&task_id={taskId}&retry_index={i}", ct).ConfigureAwait(false)).RootElement;
+            JsonElement root;
+            try
+            {
+                root = JsonDocument.Parse(await Http.GetStringAsync(
+                    $"{DriveBase}/task?{Q}&task_id={taskId}&retry_index={i}", ct).ConfigureAwait(false)).RootElement;
+            }
+            catch (HttpRequestException)
+            {
+                netFails++;
+                if (netFails >= PartAttempts)
+                    throw new PanException($"夸克{op}任务轮询连续 {PartAttempts} 次网络失败，已中止（任务可能仍在服务端执行）");
+                await Task.Delay(500, ct).ConfigureAwait(false);
+                i--; // 失败不计入 retry_index
+                continue;
+            }
+            netFails = 0;
             ThrowIfNotOk(root, op);
             var data = root.GetProperty("data");
             var status = data.GetProperty("status").GetInt32();
@@ -208,6 +254,8 @@ public sealed class QuarkPanClient : IPanClient
                 var code = data.TryGetProperty("code", out var c) ? c.GetInt64() : (long?)null;
                 throw new PanException($"夸克{op}任务失败 code={code} {msg}", code);
             }
+            if (status is not (0 or 1))
+                throw new PanException($"夸克{op}任务状态未知（status={status}），已中止轮询");
             if (DateTime.UtcNow > deadline)
                 throw new PanException($"夸克{op}任务超时（{TaskWaitTimeout.TotalMinutes} 分钟无终态），任务可能仍在服务端执行");
             await Task.Delay(500, ct).ConfigureAwait(false);
@@ -238,7 +286,7 @@ public sealed class QuarkPanClient : IPanClient
                 filelist = files.Select(f => f.Id).ToArray(),
                 exclude_fids = Array.Empty<string>(),
             }, "移动", ct).ConfigureAwait(false);
-        await FinishTaskOrThrowAsync(data, "移动", ct);
+        await FinishTaskOrThrowAsync(data, "移动", ct).ConfigureAwait(false);
     }
 
     public async Task CopyAsync(IReadOnlyList<PanFile> files, PanFile? targetDir, CancellationToken ct = default)
@@ -252,7 +300,7 @@ public sealed class QuarkPanClient : IPanClient
                 action_type = 2,
                 copy_source = 1,
             }, "复制", ct).ConfigureAwait(false);
-        await FinishTaskOrThrowAsync(data, "复制", ct);
+        await FinishTaskOrThrowAsync(data, "复制", ct).ConfigureAwait(false);
     }
 
     public async Task DeleteAsync(IReadOnlyList<PanFile> files, CancellationToken ct = default)
@@ -264,7 +312,7 @@ public sealed class QuarkPanClient : IPanClient
                 filelist = files.Select(f => f.Id).ToArray(),
                 exclude_fids = Array.Empty<string>(),
             }, "删除", ct).ConfigureAwait(false);
-        await FinishTaskOrThrowAsync(data, "删除", ct);
+        await FinishTaskOrThrowAsync(data, "删除", ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -373,7 +421,11 @@ public sealed class QuarkPanClient : IPanClient
                     expiredMs > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(expiredMs) : null,
                     PanProvider.Quark));
             }
-            if (list.GetArrayLength() < 50) break;
+            // 同列目录：按 _total 拉满，翻页超上限保护性报错
+            var total = GetPagedTotal(root);
+            if (total >= 0 ? shares.Count >= total : list.GetArrayLength() < 50) break;
+            if (page >= MaxListPages)
+                throw new PanException($"夸克分享列表翻页超过 {MaxListPages} 页仍未拉满（已取 {shares.Count}，服务端报 _total={total}），结果可能不完整，已中止");
         }
         return shares;
     }
@@ -425,11 +477,27 @@ public sealed class QuarkPanClient : IPanClient
     private const int DefaultChunkSize = 4 * 1024 * 1024;
     private const string OssMobileUa = "aliyun-sdk-js/1.0.0 Chrome Mobile 139.0.0.0 on Google Nexus 5 (Android 6.0)";
     private const string OssDesktopUa = "aliyun-sdk-js/1.0.0 Chrome 139.0.0.0 on OS X 10.15.7 64-bit";
+    /// <summary>续传记录保留期：服务端上传会话有效期未知且必然更短，超期记录续传只会白费一次往返。</summary>
+    private static readonly TimeSpan ResumeMaxAge = TimeSpan.FromDays(7);
+    /// <summary>callback 以紧凑 JSON 固化字节，续传复用期间保持逐字节一致（签名基于这份内容）。</summary>
+    private static readonly System.Text.Json.JsonSerializerOptions CompactJsonOpts = new() { WriteIndented = false };
+
+    /// <summary>
+    /// 上传断点续传的存取口（主机侧注入，可空）。未注入时无续传，行为退化为一次性上传。
+    /// 协议层只按「分片成功即记、上传成功即清」使用它，落盘位置与格式由实现方决定。
+    /// </summary>
+    public IUploadResumeStore? UploadResumeStore { get; set; }
+
+    /// <summary>一次分片上传会话的固定参数：全新上传取自 pre 响应，续传从落盘记录还原。</summary>
+    private readonly record struct UploadSession(
+        string TaskId, string AuthInfo, string UploadId, string ObjKey, string Bucket, string CallbackJson,
+        string LocalPath, long FileSize, int ChunkSize, int PartCount, string Mime);
 
     /// <summary>
     /// 上传本地文件：pre 预创建（可能秒传命中，取 metadata.part_size）→ 单遍流式哈希
     /// （MD5+SHA1+分片中间态快照，O(n)）→ update/hash（可能二次秒传/重复备份）→
     /// 逐分片 auth+PUT OSS（3 次重试）→ auth+POST 合并 XML → finish。
+    /// 注入续传存储时，失败重试/重新添加上传会按文件身份自动跳过已完成分片。
     /// </summary>
     public async Task<PanUploadResult> UploadAsync(
         string localPath, PanFile? targetDir,
@@ -443,6 +511,27 @@ public sealed class QuarkPanClient : IPanClient
         var pdirFid = targetDir?.Id ?? "0";
         var dirPath = (targetDir?.Path ?? "/").TrimEnd('/');
         var nowMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+
+        // 断点续传：按文件身份（完整路径+长度+修改时刻）查上次中断留下的上传会话；
+        // 命中且身份吻合则复用 upload_id 跳过已完成分片。未注入存储时 resumeKey 为 null，行为与无续传一致。
+        var resumeKey = UploadResumeStore == null
+            ? null
+            : ResumeKey(fi.FullName, fileSize, fi.LastWriteTimeUtc);
+        var resume = LoadResumeEntry(UploadResumeStore, resumeKey, fi.FullName, fileSize, fi.LastWriteTimeUtc);
+        if (resume != null)
+        {
+            var resumed = await TryResumeUploadAsync(resume, resumeKey!, fi, mime, dirPath, progress, ct).ConfigureAwait(false);
+            if (resumed != null)
+            {
+                RemoveResume(resumeKey); // 续传完成，记录使命结束
+                return resumed;
+            }
+            // 服务端拒绝复用该会话：丢弃记录，同一调用内落回全新上传
+            RemoveResume(resumeKey);
+        }
+
+        // 上传准备期间的防变更基线：此刻快照，开始分片上传前复检
+        var snapshot = (Length: fileSize, Lwt: fi.LastWriteTimeUtc);
 
         // 步骤1：pre。finish=true 即秒传命中（镜像客户端 end(data) 语义）；metadata.part_size 是服务端下发的真实分片大小。
         progress?.Report(new(fileSize, 0, 0, 0, "预创建"));
@@ -459,15 +548,19 @@ public sealed class QuarkPanClient : IPanClient
             l_created_at = nowMs,
         }, "上传-预创建", ct).ConfigureAwait(false);
         var rapid = pre.TryGetProperty("finish", out var fin) && fin.ValueKind == JsonValueKind.True;
-        if (rapid || !pre.TryGetProperty("upload_id", out _))
+        if (!rapid && !pre.TryGetProperty("upload_id", out _))
+        {
+            // pre 既非秒传也未下发 upload_id：没有可继续的上传会话。包络只列字段名不取值，避免回显未知内容
+            var fields = pre.ValueKind == JsonValueKind.Object
+                ? string.Join(",", pre.EnumerateObject().Select(p => p.Name))
+                : pre.ValueKind.ToString();
+            throw new PanException($"夸克上传预创建响应异常：既非秒传（finish≠true）也无 upload_id，无法继续上传（包络字段：{fields}）");
+        }
+        if (rapid)
+        {
+            RemoveResume(resumeKey); // 文件已在服务端，旧续传记录作废
             return new PanUploadResult(true, MapUploadFile(pre, dirPath, fileName, fileSize));
-
-        var taskId = pre.GetProperty("task_id").GetString()!;
-        var authInfo = pre.GetProperty("auth_info").GetString() ?? "";
-        var uploadId = pre.GetProperty("upload_id").GetString()!;
-        var objKey = pre.GetProperty("obj_key").GetString()!;
-        var bucket = pre.TryGetProperty("bucket", out var bk) ? bk.GetString() ?? "ul-zb" : "ul-zb";
-        var callback = pre.GetProperty("callback");
+        }
 
         var chunkSize = DefaultChunkSize;
         if (pre.TryGetProperty("metadata", out var md) && md.TryGetProperty("part_size", out var ps)
@@ -477,89 +570,81 @@ public sealed class QuarkPanClient : IPanClient
                 throw new PanException($"服务端下发分片大小 {psVal} 不是 65536 的倍数，无法按分片上传");
             chunkSize = (int)Math.Min(psVal, int.MaxValue);
         }
+        // 分片数一律按服务端规则值切满（末片自然收尾）：服务端按自身 part_size 校验分片几何，
+        // 实测首片实际字节偏离规则值（如 1MB 片）会被 OSS 403 拒收——4~5MB 文件不能退化成
+        // 单个不足规则值的分片。会话参数的一部分，提前算好随会话与续传记录保存。
+        var partCount = Math.Max(1, (int)((fileSize + chunkSize - 1) / chunkSize));
+        var session = new UploadSession(
+            TaskId: pre.GetProperty("task_id").GetString()!,
+            AuthInfo: pre.GetProperty("auth_info").GetString() ?? "",
+            UploadId: pre.GetProperty("upload_id").GetString()!,
+            ObjKey: pre.GetProperty("obj_key").GetString()!,
+            Bucket: pre.TryGetProperty("bucket", out var bk) ? bk.GetString() ?? "ul-zb" : "ul-zb",
+            // callback 先按紧凑 JSON 固化字节：合并阶段的 x-oss-callback 头与签名都基于这份内容，续传期间保持逐字节一致
+            CallbackJson: JsonSerializer.Serialize(pre.GetProperty("callback"), CompactJsonOpts),
+            LocalPath: localPath,
+            FileSize: fileSize,
+            ChunkSize: chunkSize,
+            PartCount: partCount,
+            Mime: mime);
 
         // 步骤2：单遍流式哈希。MD5（完整哈希）+ SHA1（完整哈希 + 每 chunkSize 边界的中间态快照），O(n) 一次扫盘。
-        progress?.Report(new(fileSize, 0, 0, 0, "计算哈希"));
-        var sha1 = new Sha1Incremental();
-        using var md5 = System.Security.Cryptography.IncrementalHash.CreateHash(
-            System.Security.Cryptography.HashAlgorithmName.MD5);
-        var ctxByBoundary = new List<string> { "" }; // [k] = 前 k*chunkSize 字节的中间态；[0] 占位（part1 无 ctx）
-        var buffer = new byte[1024 * 1024];
-        var totalRead = 0L;
-        var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize: 1024 * 1024, useAsync: true);
-        await using (fs.ConfigureAwait(false))
-        {
-            int read;
-            while ((read = await fs.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
-            {
-                md5.AppendData(buffer, 0, read);
-                var bufStart = totalRead;   // 本次读起始的绝对偏移
-                totalRead += read;
-                // 按分片边界逐段 Feed、到边界立即拍快照：chunkSize 非 1MB 倍数时一次读会跨多个
-                // 分片边界，整段 Feed 完再拍会把中间分片的 ctx 全拍成同一错态（深审 PC-02）。
-                var consumed = 0;
-                while (consumed < read)
-                {
-                    var nextBoundary = (long)ctxByBoundary.Count * chunkSize;
-                    var segEnd = (int)(Math.Min(totalRead, nextBoundary) - bufStart);
-                    sha1.Feed(buffer.AsSpan(consumed, segEnd - consumed));
-                    consumed = segEnd;
-                    if (bufStart + consumed == nextBoundary)
-                        ctxByBoundary.Add(sha1.SnapshotCtx());
-                }
-            }
-        }
-        var md5Hex = Convert.ToHexString(md5.GetHashAndReset()).ToLowerInvariant();
-        var sha1Hex = sha1.FinalizeHex();
+        var (md5Hex, sha1Hex, ctxByBoundary) = await ComputeHashesAsync(localPath, fileSize, chunkSize, doneBaseline: 0, progress, ct).ConfigureAwait(false);
 
         // 步骤3：update/hash。finish=true 即二次秒传命中（镜像客户端 FLASH_FINISH → end(data)）；repeat_backup 镜像客户端抛错。
-        var upData = await PostJsonAsync("file/update/hash", new { task_id = taskId, md5 = md5Hex, sha1 = sha1Hex },
+        var upData = await PostJsonAsync("file/update/hash", new { task_id = session.TaskId, md5 = md5Hex, sha1 = sha1Hex },
             "上传-更新哈希", ct).ConfigureAwait(false);
         if (upData.ValueKind == JsonValueKind.Object)
         {
             if (upData.TryGetProperty("finish", out var uf) && uf.ValueKind == JsonValueKind.True)
+            {
+                RemoveResume(resumeKey); // 二次秒传命中，旧续传记录作废
                 return new PanUploadResult(true, MapUploadFile(upData, dirPath, fileName, fileSize));
+            }
             if (upData.TryGetProperty("repeat_backup", out var ur) && ur.ValueKind == JsonValueKind.True)
                 throw new PanException("夸克判定为重复备份文件（repeat_backup），已中止上传");
         }
 
-        // 步骤4：分片数（<5MB 单分片；否则按 chunkSize 切）。
-        var partCount = fileSize < 5L * 1024 * 1024 ? 1
-            : (int)((fileSize + chunkSize - 1) / chunkSize);
+        // 开始上传前复检文件身份：预创建与哈希期间文件被改（截短/换内容）会让登记哈希与实传内容不一致
+        fi.Refresh();
+        if (fi.Length != snapshot.Length || fi.LastWriteTimeUtc != snapshot.Lwt)
+            throw new PanException("文件在上传准备期间已变更，上传已中止，请重新上传");
+
+        // 建立续传记录（此后每片成功即刷新）：失败重试/重新添加上传时据此跳过已完成分片
         var etags = new string[partCount];
-        var fs2 = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize: 1024 * 1024, useAsync: true);
-        await using (fs2.ConfigureAwait(false))
+        UploadResumeEntry? resumeBase = null;
+        if (resumeKey != null)
         {
-            for (var seq = 1; seq <= partCount; seq++)
+            resumeBase = new UploadResumeEntry
             {
-                ct.ThrowIfCancellationRequested();
-                var offset = (long)(seq - 1) * chunkSize;
-                var partLen = (int)Math.Min(chunkSize, fileSize - offset);
-                var partBuf = new byte[partLen];
-                fs2.Seek(offset, SeekOrigin.Begin);
-                var read = 0;
-                while (read < partLen)
-                    read += await fs2.ReadAsync(partBuf.AsMemory(read, partLen - read), ct).ConfigureAwait(false);
-
-                // X-Oss-Hash-Ctx：part>=2 带前缀中间态（流式快照，O(n) 总量）
-                var hashCtx = seq > 1 && seq - 1 < ctxByBoundary.Count ? ctxByBoundary[seq - 1] : null;
-
-                progress?.Report(new(fileSize, offset, partCount, seq - 1, "上传分片"));
-                etags[seq - 1] = await PutPartAsync(taskId, authInfo, uploadId, objKey, bucket, mime, seq,
-                    partBuf, hashCtx, ct).ConfigureAwait(false);
-                progress?.Report(new(fileSize, offset + partLen, partCount, seq, "上传分片"));
-            }
+                LocalPath = fi.FullName,
+                Length = fileSize,
+                LastWriteTimeUtcTicks = fi.LastWriteTimeUtc.Ticks,
+                UploadId = session.UploadId,
+                TaskId = session.TaskId,
+                AuthInfo = session.AuthInfo,
+                ObjKey = session.ObjKey,
+                Bucket = session.Bucket,
+                CallbackJson = session.CallbackJson,
+                ChunkSize = chunkSize,
+                PartCount = partCount,
+                Md5 = md5Hex,
+                Sha1 = sha1Hex,
+                Etags = etags.Select(e => (string?)e).ToList(),
+                UpdatedAt = DateTimeOffset.Now,
+            };
+            SaveResumeProgress(resumeKey, resumeBase, etags);
         }
+        await UploadPartsAsync(session, etags, ctxByBoundary, resumeKey, resumeBase, resuming: false, progress, ct).ConfigureAwait(false);
 
         // 步骤5：合并（auth+POST CompleteMultipartUpload；2xx 均视为成功，与客户端一致）
         progress?.Report(new(fileSize, fileSize, partCount, partCount, "合并"));
-        await CompleteMultipartAsync(taskId, authInfo, uploadId, objKey, bucket, callback, etags, ct).ConfigureAwait(false);
+        await CompleteMultipartAsync(session, etags, ct).ConfigureAwait(false);
 
         // 步骤6：finish 通知夸克
-        var done = await PostJsonAsync("file/upload/finish", new { task_id = taskId, obj_key = objKey },
+        var done = await PostJsonAsync("file/upload/finish", new { task_id = session.TaskId, obj_key = session.ObjKey },
             "上传-完成", ct).ConfigureAwait(false);
+        RemoveResume(resumeKey); // 上传成功，续传记录清掉
         return new PanUploadResult(false, MapUploadFile(done, dirPath, fileName, fileSize));
     }
 
@@ -568,31 +653,32 @@ public sealed class QuarkPanClient : IPanClient
     /// 3 次尝试、间隔 500ms（网络错误/5xx/超时才重试）；每次尝试独立 120s 超时；
     /// 签名串与实际 URL 统一用转义后的 uploadId（OSS canonical resource 与 URL 同源，与客户端一致）。
     /// </summary>
-    private async Task<string> PutPartAsync(string taskId, string authInfo, string uploadId, string objKey,
-        string bucket, string mime, int partNumber, byte[] partBuf, string? hashCtx, CancellationToken ct)
+    private async Task<string> PutPartAsync(UploadSession session, int partNumber, byte[] partBuf, string? hashCtx, CancellationToken ct)
     {
-        var escapedUploadId = Uri.EscapeDataString(uploadId);
+        var escapedUploadId = Uri.EscapeDataString(session.UploadId);
         for (var attempt = 1; ; attempt++)
         {
             var ossDate = OssDate();
             var authMeta = hashCtx == null
-                ? $"PUT\n\n{mime}\n{ossDate}\nx-oss-date:{ossDate}\nx-oss-user-agent:{OssMobileUa}\n/{bucket}/{objKey}?partNumber={partNumber}&uploadId={escapedUploadId}"
-                : $"PUT\n\n{mime}\n{ossDate}\nx-oss-date:{ossDate}\nx-oss-hash-ctx:{hashCtx}\nx-oss-user-agent:{OssMobileUa}\n/{bucket}/{objKey}?partNumber={partNumber}&uploadId={escapedUploadId}";
-            var authData = await PostJsonAsync("file/upload/auth", new { task_id = taskId, auth_info = authInfo, auth_meta = authMeta },
+                ? $"PUT\n\n{session.Mime}\n{ossDate}\nx-oss-date:{ossDate}\nx-oss-user-agent:{OssMobileUa}\n/{session.Bucket}/{session.ObjKey}?partNumber={partNumber}&uploadId={escapedUploadId}"
+                : $"PUT\n\n{session.Mime}\n{ossDate}\nx-oss-date:{ossDate}\nx-oss-hash-ctx:{hashCtx}\nx-oss-user-agent:{OssMobileUa}\n/{session.Bucket}/{session.ObjKey}?partNumber={partNumber}&uploadId={escapedUploadId}";
+            var authData = await PostJsonAsync("file/upload/auth", new { task_id = session.TaskId, auth_info = session.AuthInfo, auth_meta = authMeta },
                 $"上传-分片{partNumber}授权", ct).ConfigureAwait(false);
             var authKey = authData.TryGetProperty("auth_key", out var ak) ? ak.GetString() : null;
+            if (string.IsNullOrEmpty(authKey))
+                throw new PanException($"夸克上传分片{partNumber}授权响应缺 auth_key，无法签名分片请求");
 
             try
             {
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeoutCts.CancelAfter(PartTimeout);
                 using var req = new HttpRequestMessage(HttpMethod.Put,
-                    $"https://{bucket}.pds.quark.cn/{objKey}?partNumber={partNumber}&uploadId={escapedUploadId}")
+                    $"https://{session.Bucket}.pds.quark.cn/{session.ObjKey}?partNumber={partNumber}&uploadId={escapedUploadId}")
                 { Content = new ByteArrayContent(partBuf) };
-                req.Content.Headers.TryAddWithoutValidation("Content-Type", mime);
+                req.Content.Headers.TryAddWithoutValidation("Content-Type", session.Mime);
                 req.Headers.TryAddWithoutValidation("x-oss-date", ossDate);
                 req.Headers.TryAddWithoutValidation("x-oss-user-agent", OssMobileUa);
-                if (authKey != null) req.Headers.TryAddWithoutValidation("authorization", authKey);
+                req.Headers.TryAddWithoutValidation("authorization", authKey);
                 if (hashCtx != null) req.Headers.TryAddWithoutValidation("X-Oss-Hash-Ctx", hashCtx);
 
                 var resp = await Http.SendAsync(req, timeoutCts.Token).ConfigureAwait(false);
@@ -604,7 +690,9 @@ public sealed class QuarkPanClient : IPanClient
                         await Task.Delay(PartRetryDelay, ct).ConfigureAwait(false);
                         continue;
                     }
-                    throw new PanException($"夸克上传分片{partNumber}失败 {(int)resp.StatusCode} {body[..Math.Min(body.Length, 200)]}");
+                    // HTTP 状态放进 Code：续传路径据此识别「服务端拒绝该会话」并回落全新上传
+                    throw new PanException($"夸克上传分片{partNumber}失败 {(int)resp.StatusCode} {body[..Math.Min(body.Length, 200)]}",
+                        (int)resp.StatusCode);
                 }
                 var etag = (resp.Headers.ETag?.Tag ?? "").Trim('"');
                 if (etag.Length == 0) etag = resp.Headers.TryGetValues("etag", out var ev) ? ev.First().Trim('"') : "";
@@ -623,12 +711,16 @@ public sealed class QuarkPanClient : IPanClient
             {
                 await Task.Delay(PartRetryDelay, ct).ConfigureAwait(false);
             }
+            catch (HttpRequestException ex)
+            {
+                // 末次尝试的网络异常按业务口径收口，不把传输层异常类型裸透传给 UI
+                throw new PanException($"夸克上传分片{partNumber}网络错误（已重试 {PartAttempts} 次）：{ex.Message}");
+            }
         }
     }
 
     /// <summary>合并：auth（upload_mode=complete）换 POST 授权，POST XML 到 OSS。2xx 均视为成功（与客户端一致）。</summary>
-    private async Task CompleteMultipartAsync(string taskId, string authInfo, string uploadId, string objKey,
-        string bucket, JsonElement callback, string[] etags, CancellationToken ct)
+    private async Task CompleteMultipartAsync(UploadSession session, string[] etags, CancellationToken ct)
     {
         var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<CompleteMultipartUpload>\n" +
             string.Join("\n", etags.Select((e, i) =>
@@ -636,18 +728,19 @@ public sealed class QuarkPanClient : IPanClient
             "\n</CompleteMultipartUpload>";
         var xmlMd5 = Convert.ToBase64String(
             System.Security.Cryptography.MD5.HashData(Encoding.UTF8.GetBytes(xml)));
-        var callbackB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(
-            JsonSerializer.Serialize(callback, new JsonSerializerOptions { WriteIndented = false })));
+        var callbackB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(session.CallbackJson));
         var ossDate = OssDate();
-        var escapedUploadId = Uri.EscapeDataString(uploadId);
-        var authMeta = $"POST\n{xmlMd5}\napplication/xml\n{ossDate}\nx-oss-callback:{callbackB64}\nx-oss-date:{ossDate}\nx-oss-user-agent:{OssDesktopUa}\n/{bucket}/{objKey}?uploadId={escapedUploadId}";
+        var escapedUploadId = Uri.EscapeDataString(session.UploadId);
+        var authMeta = $"POST\n{xmlMd5}\napplication/xml\n{ossDate}\nx-oss-callback:{callbackB64}\nx-oss-date:{ossDate}\nx-oss-user-agent:{OssDesktopUa}\n/{session.Bucket}/{session.ObjKey}?uploadId={escapedUploadId}";
 
-        var authData = await PostJsonAsync("file/upload/auth", new { task_id = taskId, auth_meta = authMeta, auth_info = authInfo },
+        var authData = await PostJsonAsync("file/upload/auth", new { task_id = session.TaskId, auth_meta = authMeta, auth_info = session.AuthInfo },
             "上传-合并授权", ct).ConfigureAwait(false);
         var authKey = authData.TryGetProperty("auth_key", out var ak) ? ak.GetString() : null;
+        if (string.IsNullOrEmpty(authKey))
+            throw new PanException("夸克上传合并授权响应缺 auth_key，无法签名合并请求");
 
         using var req = new HttpRequestMessage(HttpMethod.Post,
-            $"https://{bucket}.pds.quark.cn/{objKey}?uploadId={escapedUploadId}");
+            $"https://{session.Bucket}.pds.quark.cn/{session.ObjKey}?uploadId={escapedUploadId}");
         // Content-Type 必须恰为 application/xml（无 charset），否则与签名串不符 → SignatureDoesNotMatch
         var content = new StringContent(xml, Encoding.UTF8);
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/xml");
@@ -656,18 +749,258 @@ public sealed class QuarkPanClient : IPanClient
         req.Headers.TryAddWithoutValidation("x-oss-user-agent", OssDesktopUa);
         req.Headers.TryAddWithoutValidation("x-oss-callback", callbackB64);
         req.Content.Headers.TryAddWithoutValidation("Content-MD5", xmlMd5);
-        if (authKey != null) req.Headers.TryAddWithoutValidation("authorization", authKey);
+        req.Headers.TryAddWithoutValidation("authorization", authKey);
 
         var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode)
         {
             var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            throw new PanException($"夸克上传合并失败 {(int)resp.StatusCode} {body[..Math.Min(body.Length, 200)]}");
+            throw new PanException($"夸克上传合并失败 {(int)resp.StatusCode} {body[..Math.Min(body.Length, 200)]}", (int)resp.StatusCode);
         }
     }
 
     private static string OssDate() => DateTimeOffset.UtcNow.ToString(
         "ddd, dd MMM yyyy HH:mm:ss 'GMT'", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>续传键：文件身份（完整路径+长度+修改时刻 UTC ticks）的稳定哈希。</summary>
+    private static string ResumeKey(string fullPath, long length, DateTime lastWriteUtc)
+    {
+        var src = $"{fullPath}\n{length}\n{lastWriteUtc.Ticks}";
+        return Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(src))).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// 读续传记录并校验：身份不吻合、超过保留期或缺关键会话字段都按无记录处理并清掉废记录。
+    /// 存储故障一律按无记录降级：续传是上传的增强能力，存储不允许反过来打断上传。
+    /// </summary>
+    private static UploadResumeEntry? LoadResumeEntry(
+        IUploadResumeStore? store, string? key, string fullPath, long length, DateTime lastWriteUtc)
+    {
+        if (store == null || key == null) return null;
+        UploadResumeEntry? entry;
+        try { entry = store.Load(key); }
+        catch { return null; }
+        if (entry == null) return null;
+        var valid = entry.UpdatedAt >= DateTimeOffset.Now - ResumeMaxAge
+            && entry.LocalPath == fullPath && entry.Length == length
+            && entry.LastWriteTimeUtcTicks == lastWriteUtc.Ticks
+            && !string.IsNullOrEmpty(entry.UploadId) && !string.IsNullOrEmpty(entry.TaskId);
+        if (!valid)
+        {
+            try { store.Remove(key); } catch { /* 清不掉只是留一条废记录，保留期后不再命中 */ }
+            return null;
+        }
+        return entry;
+    }
+
+    /// <summary>分片成功后刷新续传记录（每片一记，失败重试才有真实断点）。写失败只损失续传能力，不打断上传。</summary>
+    private void SaveResumeProgress(string? resumeKey, UploadResumeEntry? resumeBase, string[] etags)
+    {
+        if (resumeKey == null || resumeBase == null) return;
+        try
+        {
+            UploadResumeStore?.Save(resumeKey, resumeBase with
+            {
+                Etags = etags.Select(e => string.IsNullOrEmpty(e) ? (string?)null : e).ToList(),
+                UpdatedAt = DateTimeOffset.Now,
+            });
+        }
+        catch { /* 同上：记录写失败只损失续传能力 */ }
+    }
+
+    private void RemoveResume(string? resumeKey)
+    {
+        if (resumeKey == null) return;
+        try { UploadResumeStore?.Remove(resumeKey); }
+        catch { /* 清理失败仅遗留废记录，保留期后不再命中 */ }
+    }
+
+    /// <summary>
+    /// 单遍流式哈希：MD5 完整值 + SHA1 完整值 + 按 chunkSize 边界的 SHA1 中间态快照，O(n) 一次扫盘。
+    /// 全新上传与续传复用（续传时用快照重建分片中间态，并复核内容身份）。
+    /// </summary>
+    private async Task<(string Md5Hex, string Sha1Hex, List<string> CtxByBoundary)> ComputeHashesAsync(
+        string localPath, long fileSize, int chunkSize, long doneBaseline,
+        IProgress<PanUploadProgress>? progress, CancellationToken ct)
+    {
+        progress?.Report(new(fileSize, doneBaseline, 0, 0, "计算哈希"));
+        var sha1 = new Sha1Incremental();
+        using var md5 = System.Security.Cryptography.IncrementalHash.CreateHash(
+            System.Security.Cryptography.HashAlgorithmName.MD5);
+        var ctxByBoundary = new List<string> { "" }; // [k] = 前 k*chunkSize 字节的中间态；[0] 占位（part1 无 ctx）
+        var buffer = new byte[1024 * 1024];
+        var totalRead = 0L;
+        var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 1024 * 1024, useAsync: true);
+        await using (fs.ConfigureAwait(false))
+        {
+            int read;
+            while ((read = await fs.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+            {
+                md5.AppendData(buffer, 0, read);
+                var bufStart = totalRead;   // 本次读起始的绝对偏移
+                totalRead += read;
+                // 按分片边界逐段 Feed、到边界立即拍快照：chunkSize 非 1MB 倍数时一次读会跨多个
+                // 分片边界，整段 Feed 完再拍会把中间分片的 ctx 全拍成同一错态。
+                var consumed = 0;
+                while (consumed < read)
+                {
+                    var nextBoundary = (long)ctxByBoundary.Count * chunkSize;
+                    var segEnd = (int)(Math.Min(totalRead, nextBoundary) - bufStart);
+                    sha1.Feed(buffer.AsSpan(consumed, segEnd - consumed));
+                    consumed = segEnd;
+                    if (bufStart + consumed == nextBoundary)
+                        ctxByBoundary.Add(sha1.SnapshotCtx());
+                }
+            }
+        }
+        // 读循环提前退出（返回 0）而实读不足预期，说明哈希期间文件被截短或不可读：
+        // 继续走只会登记一份与真实内容不符的哈希
+        if (totalRead != fileSize)
+            throw new PanException($"上传文件读取中断：文件在计算哈希期间发生变更（预期 {fileSize} 字节，实读 {totalRead}）");
+        return (Convert.ToHexString(md5.GetHashAndReset()).ToLowerInvariant(), sha1.FinalizeHex(), ctxByBoundary);
+    }
+
+    /// <summary>
+    /// 按续传记录继续上传：复用 upload_id，跳过已完成分片（进度基线=已跳过分片的累计字节）。
+    /// 返回 null = 服务端拒绝复用该会话（分片 4xx / 合并失败 / finish 失败），调用方应丢弃记录走全新上传；
+    /// 正常返回 = 续传完成；抛出 = 传输层失败（网络/超时/5xx/文件读取），记录保留待下次继续。
+    /// </summary>
+    private async Task<PanUploadResult?> TryResumeUploadAsync(
+        UploadResumeEntry entry, string resumeKey, FileInfo fi, string mime, string dirPath,
+        IProgress<PanUploadProgress>? progress, CancellationToken ct)
+    {
+        var fileSize = fi.Length;
+        var fileName = fi.Name;
+        // 分片大小先过规则校验再参与运算，避免除零/负数
+        var chunkSize = (int)entry.ChunkSize;
+        if (chunkSize <= 0 || chunkSize % 65536 != 0) return null;
+        var partCount = Math.Max(1, (int)((fileSize + chunkSize - 1) / chunkSize));
+        if (partCount != entry.PartCount || entry.Etags.Count != partCount) return null;
+
+        // 开始续传前复检文件身份：记录之后文件已变则记录作废
+        fi.Refresh();
+        if (fi.Length != entry.Length || fi.LastWriteTimeUtc.Ticks != entry.LastWriteTimeUtcTicks) return null;
+
+        var etags = new string[partCount];
+        var hasPending = false;
+        var pendingGe2 = false;
+        for (var i = 0; i < partCount; i++)
+        {
+            if (entry.Etags[i] is { Length: > 0 } done) etags[i] = done;
+            else { hasPending = true; pendingGe2 |= i >= 1; }
+        }
+
+        // 进度基线：已跳过分片的累计字节，UI 从这里起步而不是归零
+        long baselineBytes = 0;
+        var baselineParts = 0;
+        for (var i = 0; i < partCount; i++)
+        {
+            if (etags[i] == null) continue;
+            baselineParts = i + 1;
+            baselineBytes = Math.Min((long)(i + 1) * chunkSize, fileSize);
+        }
+        progress?.Report(new(fileSize, baselineBytes, partCount, baselineParts, "续传检查"));
+
+        List<string> ctxByBoundary;
+        if (hasPending && pendingGe2)
+        {
+            // partNumber≥2 的分片要带 X-Oss-Hash-Ctx（SHA1 前缀中间态），只能重扫文件重建；
+            // 重扫同时复核内容身份：哈希对不上说明内容已变，记录作废走全新上传
+            var hashes = await ComputeHashesAsync(fi.FullName, fileSize, chunkSize, baselineBytes, progress, ct).ConfigureAwait(false);
+            if (hashes.Md5Hex != entry.Md5 || hashes.Sha1Hex != entry.Sha1) return null;
+            ctxByBoundary = hashes.CtxByBoundary;
+        }
+        else
+        {
+            ctxByBoundary = new List<string> { "" };
+        }
+
+        var session = new UploadSession(entry.TaskId, entry.AuthInfo, entry.UploadId, entry.ObjKey, entry.Bucket,
+            entry.CallbackJson, fi.FullName, fileSize, chunkSize, partCount, mime);
+
+        var accepted = await UploadPartsAsync(session, etags, ctxByBoundary, resumeKey, entry, resuming: true, progress, ct).ConfigureAwait(false);
+        if (!accepted) return null;
+
+        progress?.Report(new(fileSize, fileSize, partCount, partCount, "合并"));
+        try
+        {
+            await CompleteMultipartAsync(session, etags, ct).ConfigureAwait(false);
+        }
+        catch (PanException)
+        {
+            return null; // 合并被服务端拒绝：会话已失效，由调用方丢弃记录走全新上传
+        }
+
+        try
+        {
+            var done = await PostJsonAsync("file/upload/finish", new { task_id = session.TaskId, obj_key = session.ObjKey },
+                "上传-完成", ct).ConfigureAwait(false);
+            return new PanUploadResult(false, MapUploadFile(done, dirPath, fileName, fileSize));
+        }
+        catch (PanException)
+        {
+            return null; // finish 被服务端拒绝：会话已失效，同上
+        }
+    }
+
+    /// <summary>
+    /// 逐分片上传：etags 已有值的分片跳过（断点续传）；新完成一片即刷新续传记录。
+    /// 返回 false = 服务端拒绝该会话的分片请求（仅续传模式可能），调用方丢弃记录从头传；
+    /// 文件读取异常按截短显式报错，不静默吞掉。
+    /// </summary>
+    private async Task<bool> UploadPartsAsync(
+        UploadSession session, string[] etags, List<string> ctxByBoundary,
+        string? resumeKey, UploadResumeEntry? resumeBase, bool resuming,
+        IProgress<PanUploadProgress>? progress, CancellationToken ct)
+    {
+        var fs = new FileStream(session.LocalPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 1024 * 1024, useAsync: true);
+        await using (fs.ConfigureAwait(false))
+        {
+            for (var seq = 1; seq <= session.PartCount; seq++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var offset = (long)(seq - 1) * session.ChunkSize;
+                var partLen = (int)Math.Min(session.ChunkSize, session.FileSize - offset);
+                if (etags[seq - 1] != null)
+                {
+                    // 断点续传：跳过已完成分片，进度按累计字节推进
+                    progress?.Report(new(session.FileSize, offset + partLen, session.PartCount, seq, "续传跳过已传分片"));
+                    continue;
+                }
+
+                var partBuf = new byte[partLen];
+                fs.Seek(offset, SeekOrigin.Begin);
+                var read = 0;
+                while (read < partLen)
+                {
+                    var n = await fs.ReadAsync(partBuf.AsMemory(read, partLen - read), ct).ConfigureAwait(false);
+                    // ReadAsync 返 0 意味着流到头：文件比开始上传时短（被截短），继续凑读会无限空转
+                    if (n == 0)
+                        throw new PanException($"上传分片{seq}读取失败：文件被截短（该分片期望 {partLen} 字节，实读 {read}），已中止");
+                    read += n;
+                }
+
+                // X-Oss-Hash-Ctx：part>=2 带前缀中间态（流式快照，O(n) 总量）
+                var hashCtx = seq > 1 && seq - 1 < ctxByBoundary.Count ? ctxByBoundary[seq - 1] : null;
+
+                progress?.Report(new(session.FileSize, offset, session.PartCount, seq - 1, "上传分片"));
+                try
+                {
+                    etags[seq - 1] = await PutPartAsync(session, seq, partBuf, hashCtx, ct).ConfigureAwait(false);
+                }
+                catch (PanException ex) when (resuming && ex.Code is >= 400 and < 500)
+                {
+                    return false; // 服务端拒绝该会话（如 upload_id 已失效），由调用方丢弃记录从头传
+                }
+                progress?.Report(new(session.FileSize, offset + partLen, session.PartCount, seq, "上传分片"));
+                SaveResumeProgress(resumeKey, resumeBase, etags);
+            }
+        }
+        return true;
+    }
 
     private static PanFile MapUploadFile(JsonElement d, string dirPath, string fallbackName, long fallbackSize)
     {

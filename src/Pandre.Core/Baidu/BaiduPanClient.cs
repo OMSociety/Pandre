@@ -326,7 +326,13 @@ public sealed class BaiduPanClient : IPanClient
                 fs.Seek(partOffset, SeekOrigin.Begin);
                 var read = 0;
                 while (read < partLen)
-                    read += await fs.ReadAsync(partBuf.AsMemory(read, partLen - read), ct).ConfigureAwait(false);
+                {
+                    var n = await fs.ReadAsync(partBuf.AsMemory(read, partLen - read), ct).ConfigureAwait(false);
+                    // ReadAsync 返 0 意味着流到头：文件比开始上传时短（被截短），继续凑读会无限空转
+                    if (n == 0)
+                        throw new PanException($"百度上传分片{seq}读取失败：文件被截短（该分片期望 {partLen} 字节，实读 {read}），已中止");
+                    read += n;
+                }
 
                 using var content = new MultipartFormDataContent();
                 // 字段必须带文件名（BaiduPCS-Go：name="file"; filename="blob"），不带文件名会被边缘直接 RST

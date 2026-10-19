@@ -15,7 +15,9 @@ public static class AppServices
     public static CredentialStore Credentials { get; } = new();
 
     public static BaiduPanClient Baidu { get; } = new();
-    public static QuarkPanClient Quark { get; } = new();
+
+    /// <summary>夸克客户端单例；注入断点续传存储（%APPDATA%\Pandre\upload-resume.json，仅服务端上传会话标识，不含 Cookie/凭据）。</summary>
+    public static QuarkPanClient Quark { get; } = new() { UploadResumeStore = new JsonUploadResumeStore(AppDataDirPath) };
 
     public static DownloadManager Downloads { get; } = new();
 

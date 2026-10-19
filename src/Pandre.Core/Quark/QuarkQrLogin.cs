@@ -78,7 +78,15 @@ public sealed class QuarkQrLogin : IQrLoginFlow
             switch (status)
             {
                 case 2000000:
-                    st = resp.RootElement.GetProperty("data").GetProperty("members").GetProperty("service_ticket").GetString();
+                    // 已扫码确认：service_ticket 是本分支的交付物，缺失属服务端响应异常，
+                    // 必须按真实原因显式报错，不能落回「超时未确认」误导用户重新扫码
+                    var d = resp.RootElement.GetProperty("data");
+                    if (!d.TryGetProperty("members", out var mem) ||
+                        !mem.TryGetProperty("service_ticket", out var tk) ||
+                        tk.ValueKind != JsonValueKind.String ||
+                        string.IsNullOrEmpty(tk.GetString()))
+                        throw new PanException("夸克扫码已确认，但服务端未下发 service_ticket，无法换取登录态");
+                    st = tk.GetString();
                     break;
                 case 50004001:
                     unknownStreak = 0;              // 等待中

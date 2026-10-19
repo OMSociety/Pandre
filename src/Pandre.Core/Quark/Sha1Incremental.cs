@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Text;
 
 namespace Pandre.Core.Quark;
@@ -53,6 +54,10 @@ internal sealed class Sha1Incremental
     /// </summary>
     public string SnapshotCtx()
     {
+        // 快照只覆盖已压缩进状态的完整 64 字节块，残块（_tail）尚未进状态：
+        // 若在带残块的时刻拍快照，Nl/Nh 会静默少计尾部字节，hash-ctx 与服务端预期错位。
+        // 调用约定：只在分片边界（65536 的倍数，必为 64 的倍数）拍快照，此刻残块必为空。
+        Debug.Assert(_tailLen == 0, "SnapshotCtx 必须在无残块（分片边界）时调用，否则中间态少计尾部字节");
         var bits = (ulong)((long)_processed * 8);
         var json = $"{{\"hash_type\":\"sha1\",\"h0\":\"{_h0}\",\"h1\":\"{_h1}\",\"h2\":\"{_h2}\",\"h3\":\"{_h3}\",\"h4\":\"{_h4}\"," +
                    $"\"Nl\":\"{(uint)(bits & 0xFFFFFFFFu)}\",\"Nh\":\"{(uint)(bits >> 32)}\",\"data\":\"\",\"num\":\"0\"}}";
