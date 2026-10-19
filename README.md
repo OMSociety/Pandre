@@ -1,8 +1,8 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/OMSociety/Pandre/master/assets/icons/pandre-app-icon.svg" alt="盘多录 Pandre" width="96">
   <h1>盘多录 Pandre</h1>
-  <p>百度网盘与夸克网盘的 Windows 桌面客户端，把两个盘放进同一个窗口。</p>
-  <p>纯 C# 直连官方 Cookie 接口，没有浏览器内核、没有中间服务器、不破解限速。<br>扫码登录，一处浏览、搜索、上传、下载两个网盘。</p>
+  <p>百度网盘与夸克网盘的双盘聚合 Windows 桌面客户端。</p>
+  <p>清爽、干净、绿色、极简。</p>
 
   <p>
     <a href="https://dotnet.microsoft.com/download/dotnet/10.0"><img src="https://img.shields.io/badge/.NET-10-512BD4" alt=".NET"></a>
@@ -195,8 +195,19 @@ dotnet build src/Pandre.Core/Pandre.Core.csproj -c Release
 
 ## 致谢与许可
 
-接口签名与上传 / 转存链路参考 [BaiduPCS-Go](https://github.com/qjfoidnh/BaiduPCS-Go)；夸克转存 / 分享接口与 UA 门线索参考 [QuarkPanTool](https://github.com/ihmily/QuarkPanTool)（Apache-2.0）与 [QuarkPan](https://github.com/lich0821/QuarkPan)（MIT）；夸克预览参数参考 [OpenList](https://github.com/OpenListTeam/OpenList) / [AList](https://github.com/AlistGo/alist)（AGPL-3.0，仅参数设计，未复制代码）；交互与视觉质感参照 [Ghost Downloader 3](https://github.com/XiaoYouChR/Ghost-Downloader-3)。
+接口参数与链路设计参考下列项目：
 
-下载引擎为 [aria2](https://github.com/aria2/aria2)（GPL-2.0，独立子进程，许可证文本随包附带）。界面基于 [Avalonia](https://github.com/AvaloniaUI/Avalonia) 与 [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet)，二维码由 [QRCoder](https://github.com/codebude/QRCoder) 生成，图标取意于 [Fluent System Icons](https://github.com/microsoft/fluentui-system-icons)。
+- [BaiduPCS-Go](https://github.com/qjfoidnh/BaiduPCS-Go)（Apache-2.0）：百度接口签名、devuid、上传与转存链路
+- [QuarkPanTool](https://github.com/ihmily/QuarkPanTool)（Apache-2.0）：夸克转存、分享接口与 UA 门线索
+- [QuarkPan](https://github.com/lich0821/QuarkPan)（MIT）：夸克接口参数
+- [OpenList](https://github.com/OpenListTeam/OpenList) 与 [AList](https://github.com/AlistGo/alist)（AGPL-3.0）：夸克预览参数，仅参考参数设计，未复制代码
+
+随包分发与运行时依赖：
+
+- [aria2](https://github.com/aria2/aria2)（GPL-2.0）：下载引擎，作为独立子进程运行，许可证文本随包附带
+- [Avalonia](https://github.com/AvaloniaUI/Avalonia)（MIT）：界面框架
+- [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet)（MIT）：MVVM 基础设施
+- [QRCoder](https://github.com/codebude/QRCoder)（MIT）：本地生成扫码二维码
+- [Fluent System Icons](https://github.com/microsoft/fluentui-system-icons)（MIT）：图标取意
 
 本项目以 [GPL-3.0](LICENSE) 发布。
