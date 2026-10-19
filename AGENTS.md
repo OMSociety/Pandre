@@ -9,6 +9,7 @@
 - 无单元测试工程、无 CI 配置：验收靠「构建 0 错误 + 真实链路实测」，口径见「验收标准」。
 - 文档索引：
   - 协议与实现规格：[docs/开发文档.md](./docs/开发文档.md)——两盘接口逆向细节、扫码链路、下载链路、架构决策（§2）、工程约定（§5）、UI 实况与陷阱（§6）、许可证裁决（§7）。**改协议或改 UI 前必读。**
+  - 打包与发版：[docs/packaging.md](./docs/packaging.md)——产 portable zip 与 Inno Setup 安装包的命令、包内必核项、tag 与 Release 顺序。**发版前必读。**
 
 ## 常用命令
 
@@ -19,6 +20,7 @@
 | 构建（验收口径） | `dotnet build src/Pandre.Desktop/Pandre.Desktop.csproj -c Release` |
 | 还原依赖 | `dotnet restore Pandre.slnx` |
 | 本地运行 | `dotnet run --project src/Pandre.Desktop/Pandre.Desktop.csproj -c Release` |
+| 打发布包 | 见 [docs/packaging.md](./docs/packaging.md)，产物落仓库外的暂存区 |
 | 核当前生效的 SDK | `dotnet --version`（仓库内应为 10.0.4xx，即 `global.json` 锁的 10.0.400 + `latestFeature`；出 11.0.100-preview 说明 cwd 不对） |
 
 ```bash

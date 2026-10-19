@@ -3,6 +3,10 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <Version>1.0.0</Version>
+    <Product>盘多录 Pandre</Product>
+    <Description>百度网盘与夸克网盘的双盘聚合 Windows 桌面客户端</Description>
+    <Copyright>GPL-3.0</Copyright>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\pandre.ico</ApplicationIcon>
   </PropertyGroup>
@@ -29,8 +33,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\assets\windows\aria2c.exe" Link="assets\windows\aria2c.exe" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\assets\windows\aria2-COPYING.txt" Link="assets\windows\aria2-COPYING.txt" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 下载引擎必须落在 exe 旁：程序按 AppContext.BaseDirectory 拼 assets\windows\aria2c.exe，
+         单文件发布若把它打进 bundle，运行期只在临时解压目录里，路径对不上、下载引擎起不来且界面无报错 -->
+    <None Include="..\..\assets\windows\aria2c.exe" Link="assets\windows\aria2c.exe" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <None Include="..\..\assets\windows\aria2-COPYING.txt" Link="assets\windows\aria2-COPYING.txt" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
   <ItemGroup>
