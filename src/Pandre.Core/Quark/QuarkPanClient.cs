@@ -366,9 +366,13 @@ public sealed class QuarkPanClient : IPanClient
                 fids.Add(it.GetProperty("fid").GetString()!);
                 fidTokens.Add(it.GetProperty("share_fid_token").GetString()!);
             }
-            var count = root.TryGetProperty("metadata", out var md) && md.TryGetProperty("_count", out var cnt)
-                ? cnt.GetInt32() : list.GetArrayLength();
-            if (list.GetArrayLength() == 0 || count < 50) break;
+            // 以 _total 拉满为准（缺席才退回「页未满即末页」）：服务端单页截短（cap）时靠它续页，
+            // 翻页超上限保护性报错——宁可显式失败也不静默少转存（与列目录/分享列表同口径）
+            if (list.GetArrayLength() == 0) break;
+            var total = GetPagedTotal(root);
+            if (total >= 0 ? fids.Count >= total : list.GetArrayLength() < 50) break;
+            if (page >= MaxListPages)
+                throw new PanException($"夸克分享详情翻页超过 {MaxListPages} 页仍未拉满（已取 {fids.Count}，服务端报 _total={total}），结果可能不完整，已中止");
         }
         if (fids.Count == 0)
             throw new PanException("分享里没有可转存的文件");
