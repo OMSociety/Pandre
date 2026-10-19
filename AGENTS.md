@@ -1,7 +1,7 @@
 # AGENTS.md — Pandre（盘多录）Agent 宪法
 
 适用范围：本仓库全部目录；子目录另有 AGENTS.md 时，以更接近改动点的那份为准。
-最后更新：2026-10-19
+最后更新：2026-10-20
 
 ## 项目概览
 
@@ -41,6 +41,7 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 - 允许：Desktop 引用 Core 与 Download；Download 引用 Core。
 - 禁止：Core 引用 Avalonia 或任何 UI 库。原因：Core 是纯协议层，上传/转存/离线下载都落在这里，必须能脱离界面单独跑起来。
 - 禁止：Download 引用 `BaiduPanClient` / `QuarkPanClient` 具体类。原因：队列对两盘同构，只认 `IPanClient`；绑死具体类会破坏双盘对称。
+- 分层落在具体能力上：上传断点续传的记录结构与 `IUploadResumeStore` 接口在 Core（`src/Pandre.Core/UploadResume.cs`），JSON 落盘实现与注入在 Desktop（`src/Pandre.Desktop/Services/UploadResumeStore.cs`、`AppServices`）。新增跨盘能力照此办理：协议与数据形状进 Core，宿主设施（路径、存储、UI）进 Desktop。
 
 ## 关键目录
 
@@ -51,6 +52,7 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 | 加界面 | `src/Pandre.Desktop/Views/*.axaml` + `ViewModels/*.cs`；全局样式与资源键只改 `App.axaml` |
 | 挂网盘操作弹窗、加功能开关 | `src/Pandre.Desktop/Views/MainWindow.axaml`（窗口级 `FeatureOverlay` 与各操作弹窗）+ `ViewModels/FeaturePanelViewModel.cs`；不要挂到 `PanView` 级 |
 | 改下载行为 | `src/Pandre.Download/Aria2Engine.cs`（进程与 RPC 参数）、`src/Pandre.Download/DownloadManager.cs`（队列语义、逐任务选项） |
+| 改上传断点续传 | 协议侧 `src/Pandre.Core/UploadResume.cs`（记录结构 + `IUploadResumeStore` 接口，夸克客户端经 `UploadResumeStore` 属性注入）；落盘实现 `src/Pandre.Desktop/Services/UploadResumeStore.cs`（`JsonUploadResumeStore`，写 `%APPDATA%\Pandre\upload-resume.json`） |
 | 改图标与品牌图形 | 设计稿 `assets/icons/`、代码常量 `src/Pandre.Desktop/Icons.Brand.cs`、多尺寸成品 `src/Pandre.Desktop/Assets/pandre.ico` |
 
 ## 数据流
@@ -76,6 +78,7 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 - 禁止把 Transform 对象当 Avalonia 动画目标。原因：TransformAnimator 要求目标是 Visual，否则抛 `InvalidCastException` 闪退。写法见 `MainWindow.axaml.cs` 的 `UpdateNavIndicator`（Transitions 挂在 Border 上）。
 - 禁止用 `SystemDecorations="None"` 实现无边框。原因：会丢系统缩放与圆角；既定方案是 `WindowDecorations="BorderOnly"` + 自绘标题栏。
 - 禁止提交真实 Cookie 或令牌、禁止在日志与界面输出 Cookie 值。原因：Cookie 即账号等价物，进仓库或日志等于公开账号。凭据只在 `%APPDATA%/Pandre/credentials/`，不进仓库。
+- 禁止把账号凭据写进 `%APPDATA%\Pandre\upload-resume.json`（`UploadResumeEntry` 的任何字段都不行，含 `AuthInfo`）：这份文件是明文 JSON，与 `credentials/` 的 DPAPI 加密域不同，只允许承载服务端上传会话标识与分片进度。原因：一旦写入 Cookie / token / bduss / BDUSS / `__puus` 一类值，凭据就脱离加密域落到明文盘上，等于把账号交给任何能读 `%APPDATA%` 的进程。
 - 禁止写注册表、加右键菜单、进「此电脑」、开机自启，禁止引入任何统计或上报 SDK。原因：绿色免安装与零遥测是设计规范（docs §5），不是可选项。
 - 禁止复制 AGPL 项目（OpenList / AList）的代码。原因：会传染本项目许可证；许可裁决表见 docs §8。参考参数设计可以，复制别家代码前先核许可证。
 - 禁止删掉 README 的「致谢」与「License」两节。原因：MIT / Apache-2.0 项目允许参考但要求署名与许可声明，删掉即违反许可义务；裁决表见 docs §8。
@@ -87,15 +90,16 @@ Pandre.Desktop (Avalonia MVVM：Views/ + ViewModels/ + Services/)
 
 1. 在仓库内做一次**全量**构建 `dotnet build src/Pandre.Desktop/Pandre.Desktop.csproj -c Release`，0 错误 0 警告；增量构建的结果不作数（见「出错怎么办」）。
 2. 真跑一次应用，走通受影响的流程：登录 / 列目录 / 搜索 / 下载 / 文件管理（移动·复制·重命名·删除）/ 转存 / 分享 / 上传，按改动面至少走通对应的一条。
-3. 凡触及下载链路、启动流程：必须实测一次真实入队，只看界面不算；动夸克取链时用一个 ≥100MB 的文件，UA 门只在 ≥100MB 触发（100MB 整这一边界值未实测，见 docs §4）。
-4. UI 改动：深色、浅色两主题各截图核对一次。运行期两个验收开关：`PANDRE_AUTOCHECK=3` 启动后直跳某页（0 百度 / 1 夸克 / 2 下载 / 3 设置），`PANDRE_LOGINPANEL=1` 强制弹开扫码弹窗。
-5. 需要真实账号或手工操作的步骤（扫码登录、真实入队）必须由用户配合完成，不能只凭构建与界面就报通过。
+3. 凡触及上传链路：必须实测一次中断后续传——传一个大于分片大小的文件，中途取消或结束进程，再对同一文件发起上传，经 `file/upload/pre` 复用上次的 `upload_id`，已完成分片不再重传；文件被改动过（大小或修改时刻变了）时必须落回全新上传。只看「上传成功」不算，续传与重传在界面上都成功，判据是 `%APPDATA%\Pandre\upload-resume.json` 里的记录被复用而非被清掉重写。
+4. 凡触及下载链路、启动流程：必须实测一次真实入队，只看界面不算；动夸克取链时用一个 ≥100MB 的文件，UA 门只在 ≥100MB 触发（100MB 整这一边界值未实测，见 docs §4）。
+5. UI 改动：深色、浅色两主题各截图核对一次。运行期两个验收开关：`PANDRE_AUTOCHECK=3` 启动后直跳某页（0 百度 / 1 夸克 / 2 下载 / 3 设置），`PANDRE_LOGINPANEL=1` 强制弹开扫码弹窗。
+6. 需要真实账号或手工操作的步骤（扫码登录、真实入队）必须由用户配合完成，不能只凭构建与界面就报通过。
 
 收尾：强制结束应用进程不会带走 `aria2c` 子进程（只有正常退出路径的 `desktop.Exit` 才收尾），用强杀收尾时顺手结束残留的 `aria2c`。
 
 ## 提交与协作
 
-- Commit：单行中文摘要，格式 `模块：改动`；模块用 `Core（百度）` / `Core（夸克）` / `Download` / `Desktop` / `docs` / `工程`。一次提交只写一个主模块，跨模块改动归入主责模块或拆成多次提交。历史提交里另有 `fix:` / `修复：` / `扩展：` / `浏览器接管：` / `P1 MVP:` 等旧形态前缀，这些不再沿用。
+- Commit：单行中文摘要，写清这次改了什么。一次提交只做一件主事，跨模块改动归入主责模块或拆成多次提交。
 - 行尾由 `.gitattributes` 强制：`*` text=auto 兜底；显式规则 `.cs` / `.axaml` / `.md` / `.json` / `.yml` / `.gitattributes` 用 LF，`.csproj` / `.slnx` 用 CRLF，`ico` / `png` / `jpg` / `exe` / `dll` 标记 binary。不要为了迁就编辑器去改这份文件。
 
 ## 已知风险区
