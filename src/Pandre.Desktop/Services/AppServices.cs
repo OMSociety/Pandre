@@ -32,6 +32,10 @@ public static class AppServices
 
     // ===== 设置（theme/material/downloadDir 统一持久化到 settings.json） =====
 
+    /// <summary>设置读取或写盘失败时触发（失败在内部按默认值/内存值消化，不中断调用方）。
+    /// 可能在任意线程触发：启动链在线程池读设置，订阅方改绑定属性前须自行切到 UI 线程。</summary>
+    public static event Action<string>? SettingsFailure;
+
     /// <summary>主题：system / light / dark。变更后需重刷材质：None 材质的窗口实底色依赖当前主题。</summary>
     public static string Theme
     {
@@ -122,6 +126,7 @@ public static class AppServices
     private static Settings LoadSettings()
     {
         // 加锁懒初始化：UI 线程与 Task.Run 启动链并发读时，避免各建一份实例互相丢更新
+        string? failure = null;
         lock (_settingsGate)
         {
             if (_settingsCache != null) return _settingsCache;
@@ -134,12 +139,14 @@ public static class AppServices
             }
             catch (Exception ex)
             {
-                // 坏文件回默认值，留调试痕迹
-                System.Diagnostics.Debug.WriteLine("[AppServices] 设置读取失败，回默认值: " + ex.Message);
+                // 坏文件按默认值继续跑；提示经 SettingsFailure 送主界面状态条。
+                // 事件在锁外触发：订阅方若再进设置属性读值，不会撞上本锁
+                failure = "设置读取失败，本次运行使用默认设置：" + ex.Message;
                 _settingsCache = new Settings();
             }
-            return _settingsCache;
         }
+        if (failure != null) SettingsFailure?.Invoke(failure);
+        return _settingsCache!;
     }
 
     private static void SaveSettings(Settings s)
@@ -152,8 +159,8 @@ public static class AppServices
         }
         catch (Exception ex)
         {
-            // 写不进（目录只读/磁盘满等）留调试痕迹，不静默
-            System.Diagnostics.Debug.WriteLine("[AppServices] 设置写盘失败: " + ex.Message);
+            // 写不进（目录只读/磁盘满等）：本次改动只在内存生效、不会落盘，经 SettingsFailure 送主界面状态条提示
+            SettingsFailure?.Invoke("设置保存失败，重启后会回到本次改动前的状态：" + ex.Message);
         }
     }
 

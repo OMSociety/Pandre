@@ -31,8 +31,8 @@ public partial class MainViewModel : ViewModelBase
     public DownloadsViewModel Downloads { get; }
     public SettingsViewModel Settings { get; }
 
-    /// <summary>功能开关面板（改一项立即写盘并广播）。</summary>
-    public FeaturePanelViewModel FeaturePanel { get; } = new();
+    /// <summary>功能开关面板（改一项立即写盘并广播）。在构造函数里创建：订阅设置失败事件必须先于它读设置。</summary>
+    public FeaturePanelViewModel FeaturePanel { get; }
 
     public ObservableCollection<NavItem> NavItems { get; }
 
@@ -46,7 +46,7 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>登录伪弹窗是否打开。</summary>
     [ObservableProperty] private bool _isLoginPanelOpen;
 
-    /// <summary>启动初始化失败信息（可见化：窗口底部状态条提示，此前只写调试输出用户看不到）。</summary>
+    /// <summary>窗口底部状态条提示：启动初始化失败、设置读取/写盘失败都落到这里（这类失败此前只进调试输出，Release 构建里连输出都被剔除）。</summary>
     [ObservableProperty] private string? _initError;
 
     /// <summary>功能开关伪弹窗是否打开。</summary>
@@ -63,11 +63,17 @@ public partial class MainViewModel : ViewModelBase
 
     public MainViewModel()
     {
+        // 设置失败经事件送窗口底部状态条。订阅必须先于下面各页构造：页面构造会读设置
+        // （DownloadDir、功能开关），首读失败不能漏报。事件可能在非 UI 线程触发，经 Post 切回
+        AppServices.SettingsFailure += msg =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => InitError = msg);
+
         Downloads = new DownloadsViewModel();
         Login = new LoginViewModel();
         Baidu = new PanViewModel(PanProvider.Baidu, Downloads);
         Quark = new PanViewModel(PanProvider.Quark, Downloads);
         Settings = new SettingsViewModel();
+        FeaturePanel = new FeaturePanelViewModel();
 
         // 两个网盘用各自的品牌图标（Icons.Brand.cs）；下载与设置用微软 Fluent System Icons（MIT），见 Icons.cs
         // 品牌图标是单色单形态，选中态由背板强调色与左侧指示条表达，不换图标

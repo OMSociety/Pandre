@@ -75,7 +75,16 @@ public sealed class CredentialStore : ICredentialStore
     public Task ClearAsync(PanProvider provider)
     {
         var path = PathFor(provider);
-        if (File.Exists(path)) File.Delete(path);
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            // 删除失败（文件被占用/权限不足）不吞：包成统一异常上抛，由调用方给可见提示，
+            // 否则用户以为已退出登录、重启后凭据又回来了
+            throw new PanException($"清除本地凭据文件失败（{provider}）：{ex.Message}");
+        }
         return Task.CompletedTask;
     }
 

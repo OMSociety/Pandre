@@ -268,6 +268,6 @@ public partial class DownloadsViewModel : ViewModelBase
     [RelayCommand] private void OpenDir()
     {
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(AppServices.DownloadDir) { UseShellExecute = true }); }
-        catch { }
+        catch (Exception ex) { SetStatus($"无法打开下载目录：{ex.Message}", sticky: true); }
     }
 }

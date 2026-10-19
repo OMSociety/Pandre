@@ -145,7 +145,17 @@ public partial class LoginCardViewModel : ViewModelBase
     [RelayCommand]
     private async Task LogoutAsync()
     {
-        await AppServices.Credentials.ClearAsync(_provider);
+        try
+        {
+            await AppServices.Credentials.ClearAsync(_provider);
+        }
+        catch (Exception ex)
+        {
+            // 凭据还在盘上，登出没有完成：保持已登录态不动，否则界面显示未登录、重启后凭据又恢复（状态分裂）。
+            // 退出登录按钮就在登录弹窗里，其上方的状态文字用户可见
+            StatusText = $"退出登录失败：{ex.Message}";
+            return;
+        }
         // 内存会话态一并解除（深审 EC-01）：否则 IsAuthenticated 恒真，网盘页继续用旧会话，与「未登录」UI 自相矛盾
         CurrentClient.Detach();
         IsLoggedIn = false;
@@ -173,10 +183,19 @@ public partial class LoginCardViewModel : ViewModelBase
         }
         catch (PanException ex) when (ex.IsAuthExpired)
         {
-            await AppServices.Credentials.ClearAsync(_provider);
+            // 会话在服务端已失效，先解除内存态让启动流程继续；盘上凭据删不掉（占用/权限）时不阻断启动，
+            // 卡片状态条给出可见提示，残留文件由下次登录写入或下次过期清理兜底
             client.Detach();   // 会话过期：内存态一并解除（深审 EC-01），否则网盘页继续用旧会话
             IsLoggedIn = false;
             StatusText = "登录已过期，请重新扫码";
+            try
+            {
+                await AppServices.Credentials.ClearAsync(_provider);
+            }
+            catch (Exception clearEx)
+            {
+                StatusText = $"登录已过期，请重新扫码；本地凭据清除失败：{clearEx.Message}";
+            }
         }
         catch (Exception ex)
         {
