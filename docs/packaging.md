@@ -74,4 +74,4 @@ gh release create v1.0.0 --title "盘多录 Pandre 1.0.0" --notes-file <发布�
 ## 当前限制
 
 - 只有 win-x64。README 路线图里的 macOS / Linux beta 与三系统 CI 都还没有落地，别把这两个产物读成跨平台支持。
-- 自包含发布的体积主要来自 .NET 运行时与 SkiaSharp：单文件 exe 约 50 MB，安装包解压后约 113 MB。
+- 自包含发布的体积主要来自 .NET 运行时与 SkiaSharp：单文件 exe 约 48 MB，安装包解压后约 113 MB。
