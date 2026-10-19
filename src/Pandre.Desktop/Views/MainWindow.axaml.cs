@@ -78,13 +78,13 @@ public partial class MainWindow : Window
     private void OnOverlayPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (ReferenceEquals(e.Source, sender) && DataContext is ViewModels.MainViewModel vm)
-            vm.IsLoginPanelOpen = false;
+            vm.CloseLoginPanelCommand.Execute(null);
     }
 
     /// <summary>弹窗右上角关闭按钮。</summary>
     private void OnCloseLoginPanelClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (DataContext is ViewModels.MainViewModel vm) vm.IsLoginPanelOpen = false;
+        if (DataContext is ViewModels.MainViewModel vm) vm.CloseLoginPanelCommand.Execute(null);
     }
 
     /// <summary>功能开关弹窗：点遮罩空白关闭。</summary>
@@ -164,7 +164,7 @@ public partial class MainWindow : Window
             }
             if (vm.IsLoginPanelOpen)
             {
-                vm.IsLoginPanelOpen = false;
+                vm.CloseLoginPanelCommand.Execute(null);
                 e.Handled = true;
                 return;
             }

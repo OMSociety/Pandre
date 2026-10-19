@@ -43,7 +43,7 @@ public static class AppServices
         set { var s = LoadSettings(); s.Theme = value; SaveSettings(s); ApplyTheme(); ApplyMaterial(); }
     }
 
-    /// <summary>透明材质：Mica / Acrylic / MicaAlt / Aero / None</summary>
+    /// <summary>透明材质：Mica / Acrylic / Aero / None</summary>
     public static string Material
     {
         get => LoadSettings().Material ?? "Mica";
@@ -188,9 +188,10 @@ public static class AppServices
             desktop.MainWindow.TransparencyLevelHint = Material switch
             {
                 "Acrylic" => new[] { Avalonia.Controls.WindowTransparencyLevel.AcrylicBlur, Avalonia.Controls.WindowTransparencyLevel.None },
-                "MicaAlt" => new[] { Avalonia.Controls.WindowTransparencyLevel.Mica, Avalonia.Controls.WindowTransparencyLevel.None },
                 "Aero" => new[] { Avalonia.Controls.WindowTransparencyLevel.Blur, Avalonia.Controls.WindowTransparencyLevel.None },
                 "None" => new[] { Avalonia.Controls.WindowTransparencyLevel.None },
+                // 历史 settings.json 可能残留 "MicaAlt"：落入默认分支即同样以 Mica 打头，
+                // 与原专用映射分支行为一致，无需保留兼容分支
                 _ => new[] { Avalonia.Controls.WindowTransparencyLevel.Mica, Avalonia.Controls.WindowTransparencyLevel.AcrylicBlur, Avalonia.Controls.WindowTransparencyLevel.None },
             };
             // None 时要给窗口一个实底，否则全透明；底色跟随主题

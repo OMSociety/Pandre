@@ -66,10 +66,12 @@ public sealed class BaiduPanClient : IPanClient
         var root = JsonDocument.Parse(await Http.GetStringAsync(
             $"{ApiBase}/api/quota?checkfree=1&checkexpire=1", ct).ConfigureAwait(false)).RootElement;
         ThrowIfErrno(root, "配额查询");
+        if (!root.TryGetProperty("total", out var totalEl) || !root.TryGetProperty("used", out var usedEl))
+            throw new PanException("百度配额查询响应缺 total/used 字段");
         return new PanAccountInfo(
             _nickname,
-            root.GetProperty("total").GetInt64(),
-            root.GetProperty("used").GetInt64(),
+            totalEl.GetInt64(),
+            usedEl.GetInt64(),
             null);
     }
 
@@ -507,7 +509,9 @@ public sealed class BaiduPanClient : IPanClient
         var root = JsonDocument.Parse(await ReadUtf8Async(resp.Content, ct).ConfigureAwait(false)).RootElement;
         if (root.TryGetProperty("errno", out var en) && en.GetInt32() != 0)
             throw new PanException($"百度创建分享失败 errno={en.GetInt32()}", en.GetInt32());
-        var link = root.GetProperty("link").GetString()!;
+        if (!root.TryGetProperty("link", out var linkEl))
+            throw new PanException("百度创建分享响应缺 link 字段");
+        var link = linkEl.GetString() ?? throw new PanException("百度创建分享响应 link 字段为空");
         return new PanShare(
             root.TryGetProperty("shareid", out var sid) ? sid.GetInt64().ToString() : "0",
             link, options.Title, pwd, options.Files.Count,
@@ -774,7 +778,9 @@ public sealed class BaiduPanClient : IPanClient
             var emsg = root.TryGetProperty("error_msg", out var em) ? em.GetString() : "";
             throw new PanException($"百度离线下载失败 error_code={ec.GetInt32()} {emsg}", ec.GetInt32());
         }
-        var taskId = root.GetProperty("task_id").GetInt64().ToString();
+        if (!root.TryGetProperty("task_id", out var taskIdEl))
+            throw new PanException("百度离线下载响应缺 task_id 字段");
+        var taskId = taskIdEl.GetInt64().ToString();
         return new PanOfflineTask(taskId, "", 0, 0, 1, savePath, sourceUrl, PanProvider.Baidu);
     }
 

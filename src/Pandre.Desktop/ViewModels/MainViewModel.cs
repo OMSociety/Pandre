@@ -141,7 +141,15 @@ public partial class MainViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void CloseLoginPanel() => IsLoginPanelOpen = false;
+    private void CloseLoginPanel()
+    {
+        IsLoginPanelOpen = false;
+        // 关弹窗必须同时停扫码轮询：只收弹窗会让轮询在看不见的弹窗外继续跑，
+        // 二维码过期/登录成功都发生在无人在场的时候。Cancel 只发取消信号，
+        // 状态与收尾统一由 StartLoginAsync 的 catch（「已取消」）/finally 处理
+        Login.Baidu.CancelCommand.Execute(null);
+        Login.Quark.CancelCommand.Execute(null);
+    }
 
     private void OnSessionChanged()
     {
@@ -163,7 +171,6 @@ public partial class MainViewModel : ViewModelBase
             // 引擎启动含同步等待 RPC 就绪，放线程池并行，不占 UI 线程
             _ = System.Threading.Tasks.Task.Run(AppServices.StartDownloads);
             await Login.InitAsync();
-            OnSessionChanged();
             _sessionRestored = true;
             // 默认停在已登录的网盘页，都没有则停在百度页
             SelectedNav = Login.Quark.IsLoggedIn && !Login.Baidu.IsLoggedIn ? NavItems[1] : NavItems[0];

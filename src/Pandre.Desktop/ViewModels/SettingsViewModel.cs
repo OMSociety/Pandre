@@ -14,7 +14,7 @@ public sealed class ThemeOption
 
 public sealed class MaterialOption
 {
-    public required string Key { get; init; }     // Mica/Acrylic/MicaAlt/Aero/None
+    public required string Key { get; init; }     // Mica/Acrylic/Aero/None
     public required string Label { get; init; }
     public override string ToString() => Label;
 }
@@ -39,7 +39,6 @@ public partial class SettingsViewModel : ViewModelBase
     {
         new() { Key = "Mica", Label = "Mica" },
         new() { Key = "Acrylic", Label = "Acrylic" },
-        new() { Key = "MicaAlt", Label = "MicaAlt" },
         new() { Key = "Aero", Label = "Aero" },
         new() { Key = "None", Label = "None" },
     };

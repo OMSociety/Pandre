@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,12 +17,9 @@ public static class ThumbCache
     private static readonly ConcurrentDictionary<string, Task<Bitmap?>> Inflight = new();
     private static readonly ConcurrentDictionary<string, DateTime> NegativeUntil = new();
     private const int MaxEntries = 512;   // 容量守卫：超限整体清空，靠懒加载重建
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
-
-    static ThumbCache()
-    {
-        Http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", PanHttp.BrowserUa);
-    }
+    // 统一走 PanHttp 管道（charset 归一在里面）：传空 Cookie 容器即不带任何登录态，
+    // 缩略图抓的是分享态图片，不该携带用户 Cookie
+    private static readonly HttpClient Http = PanHttp.CreateClient(new CookieContainer(), PanHttp.BrowserUa, timeoutSec: 15);
 
     /// <summary>取缩略图 Bitmap；没有 or 失败返回 null。</summary>
     public static Task<Bitmap?> GetAsync(string? url, CancellationToken ct = default)

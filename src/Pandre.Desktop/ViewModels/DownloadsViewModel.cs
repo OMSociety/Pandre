@@ -188,6 +188,9 @@ public partial class DownloadsViewModel : ViewModelBase
         // 轮询线程上触发，切到 UI 线程
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
+            // Post 回调可能晚于 Rows.Remove 才执行：按任务 id 重查当前任务表，查无即本次更新作废，
+            // 不把已删除的任务加回成僵尸行（Tasks 是锁内快照，无需新锁）
+            if (!AppServices.Downloads.Tasks.Any(x => x.Id == t.Id)) return;
             var row = Rows.FirstOrDefault(r => r.Task == t);
             if (row == null)
             {

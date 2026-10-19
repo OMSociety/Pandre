@@ -47,6 +47,14 @@
                 <!-- 伪弹窗：遮罩 + 抬升实体卡片 -->
                 <SolidColorBrush x:Key="ScrimBrush" Color="#99000000"/>
                 <SolidColorBrush x:Key="DialogBrush" Color="#F22B2B2B"/>
+                <!-- 弹窗投影整串资源化，样式内不写字面色 -->
+                <BoxShadows x:Key="DialogBoxShadow">0 16 44 0 #66000000</BoxShadows>
+                <!-- 关闭按钮按压底色：悬停底 #C42B1C 的加深档（悬停底是唯一豁免的字面色） -->
+                <SolidColorBrush x:Key="CaptionClosePressedBrush" Color="#B0241A"/>
+                <!-- 关闭按钮固定红底上的前景：红底不随强调色，不能复用运行期按系统强调色改写的 OnAccentBrush -->
+                <SolidColorBrush x:Key="CaptionCloseFgBrush" Color="#FFFFFF"/>
+                <!-- 二维码静区：扫码识别需要白底，两主题同值 -->
+                <SolidColorBrush x:Key="QrFrameBrush" Color="#FFFFFF"/>
                 <!-- Win11 控件观感：边框压淡、按钮低亮度（覆盖 Fluent 主题默认的 Win10 亮边框） -->
                 <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#14FFFFFF"/>
                 <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#26FFFFFF"/>
@@ -73,6 +81,14 @@
                 <SolidColorBrush x:Key="NavSelectedBrush" Color="#1F0067C0"/>
                 <SolidColorBrush x:Key="ScrimBrush" Color="#59000000"/>
                 <SolidColorBrush x:Key="DialogBrush" Color="#FFFFFFFF"/>
+                <!-- 弹窗投影整串资源化，样式内不写字面色 -->
+                <BoxShadows x:Key="DialogBoxShadow">0 16 44 0 #66000000</BoxShadows>
+                <!-- 关闭按钮按压底色：悬停底 #C42B1C 的加深档（悬停底是唯一豁免的字面色） -->
+                <SolidColorBrush x:Key="CaptionClosePressedBrush" Color="#B0241A"/>
+                <!-- 关闭按钮固定红底上的前景：红底不随强调色，不能复用运行期按系统强调色改写的 OnAccentBrush -->
+                <SolidColorBrush x:Key="CaptionCloseFgBrush" Color="#FFFFFF"/>
+                <!-- 二维码静区：扫码识别需要白底，两主题同值 -->
+                <SolidColorBrush x:Key="QrFrameBrush" Color="#FFFFFF"/>
                 <!-- Win11 控件观感（浅色）：边框压淡、按钮接近白卡 -->
                 <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#29000000"/>
                 <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#47000000"/>
@@ -114,10 +130,10 @@
             <Setter Property="Background" Value="#C42B1C"/>
         </Style>
         <Style Selector="Button.caption-close:pointerover PathIcon">
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Foreground" Value="{DynamicResource CaptionCloseFgBrush}"/>
         </Style>
         <Style Selector="Button.caption-close:pressed /template/ ContentPresenter">
-            <Setter Property="Background" Value="#B0241A"/>
+            <Setter Property="Background" Value="{DynamicResource CaptionClosePressedBrush}"/>
         </Style>
 
         <!-- 基础文字 -->
@@ -157,10 +173,10 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="10"/>
             <Setter Property="Padding" Value="20"/>
-            <Setter Property="BoxShadow" Value="0 16 44 0 #66000000"/>
+            <Setter Property="BoxShadow" Value="{DynamicResource DialogBoxShadow}"/>
         </Style>
         <Style Selector="Border.qr-frame">
-            <Setter Property="Background" Value="White"/>
+            <Setter Property="Background" Value="{DynamicResource QrFrameBrush}"/>
             <Setter Property="CornerRadius" Value="8"/>
             <Setter Property="Padding" Value="8"/>
         </Style>

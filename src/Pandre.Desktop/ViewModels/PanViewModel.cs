@@ -143,6 +143,9 @@ public partial class PanViewModel : ViewModelBase
     [RelayCommand]
     private async Task UpAsync()
     {
+        // 加载中禁止再入（Up/Open/Search 三入口同一口径）：AsyncRelayCommand 默认不挡并发执行，
+        // 加载中连点/回车连发会重复推目录栈、并发重建列表，造成目录栈重复项与列表错位
+        if (IsLoading) return;
         if (_isSearchMode)
         {
             // 搜索结果的「上一级」= 退回目录列表（搜索结果没有父目录；
@@ -162,6 +165,7 @@ public partial class PanViewModel : ViewModelBase
     private async Task OpenAsync(FileRowViewModel? row)
     {
         if (row == null || !row.File.IsDirectory) return;
+        if (IsLoading) return;   // 加载中禁再入，理由见 UpAsync
         if (_isSearchMode)
         {
             // 搜索结果里打开目录：目录栈无法表达「搜索上下文的父链」，
@@ -180,6 +184,7 @@ public partial class PanViewModel : ViewModelBase
     [RelayCommand]
     private async Task SearchAsync()
     {
+        if (IsLoading) return;   // 加载中禁再入，理由见 UpAsync
         if (string.IsNullOrWhiteSpace(SearchText)) { await LoadCurrentAsync(); return; }
         if (!IsLoggedIn) { StatusMessage = "未登录"; return; }
         IsLoading = true;

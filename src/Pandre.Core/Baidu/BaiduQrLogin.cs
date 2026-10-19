@@ -29,9 +29,12 @@ public sealed partial class BaiduQrLogin : IQrLoginFlow
     {
         var json = JsonDocument.Parse(await _http.GetStringAsync(
             $"https://passport.baidu.com/v2/api/getqrcode?lp=pc&qrloginfrom=pc&qrcode=1&apiver=v3&tt={Ts()}&tpl=netdisk", ct).ConfigureAwait(false));
-        _sign = json.RootElement.GetProperty("sign").GetString()
-            ?? throw new PanException("百度 getqrcode 未返回 sign");
-        var imgurl = json.RootElement.GetProperty("imgurl").GetString()!.Replace("\\/", "/");
+        if (!json.RootElement.TryGetProperty("sign", out var signEl))
+            throw new PanException("百度 getqrcode 响应缺 sign 字段");
+        _sign = signEl.GetString() ?? throw new PanException("百度 getqrcode 未返回 sign");
+        if (!json.RootElement.TryGetProperty("imgurl", out var imgEl))
+            throw new PanException("百度 getqrcode 响应缺 imgurl 字段");
+        var imgurl = imgEl.GetString()!.Replace("\\/", "/");
         if (!imgurl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             imgurl = "https://" + imgurl.TrimStart('/');
         var png = await _http.GetByteArrayAsync(imgurl, ct).ConfigureAwait(false);
@@ -69,7 +72,9 @@ public sealed partial class BaiduQrLogin : IQrLoginFlow
             var cv = uni.RootElement.TryGetProperty("channel_v", out var cve) ? cve.GetString() ?? "" : "";
             if (cv.Length == 0) continue;
             var cvj = JsonDocument.Parse(cv.Replace("\\/", "/"));
-            var status = cvj.RootElement.GetProperty("status").GetInt32();
+            if (!cvj.RootElement.TryGetProperty("status", out var statusEl))
+                throw new PanException("百度扫码轮询响应缺 status 字段");
+            var status = statusEl.GetInt32();
             if (status is 0 or 1) unknownStreak = 0; // 已知状态拍归零，只统计真正连续的未知拍
             if (status == 1)
             {

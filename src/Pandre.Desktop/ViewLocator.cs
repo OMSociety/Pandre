@@ -27,7 +27,7 @@ public class ViewLocator : IDataTemplate
             return (Control)Activator.CreateInstance(type)!;
         }
         
-        return new TextBlock { Text = "Not Found: " + name };
+        return new TextBlock { Text = "未找到视图：" + name };
     }
 
     public bool Match(object? data)

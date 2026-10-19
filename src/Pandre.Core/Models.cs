@@ -37,7 +37,12 @@ public sealed class PanException(string message, long? code = null) : Exception(
 {
     public long? Code { get; } = code;
 
-    /// <summary>是否为登录态失效（百度 errno=-6/110；夸克 code 401/31001/31004/31007，抛出点已把 code 放进 Code）。</summary>
+    /// <summary>
+    /// 是否为登录态失效（百度 errno=-6/110；夸克 code 401/31001/31004/31007，抛出点已把 code 放进 Code）。
+    /// 百度转存链路把 errno=-4 也按登录态失效处理（转存分支有显式 -4 判定），本属性有意不收编 -4：
+    /// -4 在各端点的语义未逐一证实、真网探针也未能触发，收进全局判定会把含义未知的 -4
+    /// 一律升级为「清凭据+登出」级处理；两处口径的现状差异由转存路径的显式 -4 分支兜住。
+    /// </summary>
     public bool IsAuthExpired => Code is -6 or 110 or 401 or 31001 or 31004 or 31007;
 }
 

@@ -237,7 +237,7 @@
           <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10"
                       HorizontalAlignment="Center" Margin="0,16,0,0">
             <Button Classes="primary" Content="扫码登录" Command="{Binding StartLoginCommand}"
-                    IsVisible="{Binding !IsLoggedIn}"/>
+                    IsEnabled="{Binding !IsBusy}" IsVisible="{Binding !IsLoggedIn}"/>
             <Button Content="取消" Command="{Binding CancelCommand}"
                     IsVisible="{Binding IsBusy}"/>
             <Button Content="关闭" Click="OnCloseLoginPanelClick"

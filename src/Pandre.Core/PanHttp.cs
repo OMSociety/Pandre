@@ -13,7 +13,7 @@ public static class PanHttp
 
     /// <summary>
     /// 夸克桌面客户端 UA：file/download 必须用它，否则服务端按网页身份限 100MB（23018）。
-    /// 取证自 QuarkPanTool v0.0.5（GPL）与本机实测。
+    /// 取证自 QuarkPanTool v0.0.5（Apache-2.0）与本机实测。
     /// </summary>
     public const string QuarkDesktopUa =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.56 Chrome/100.0.4896.160 Electron/18.3.5.12-a038f7b798 Safari/537.36 Channel/pckk_other_ch";
